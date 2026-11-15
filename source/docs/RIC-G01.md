@@ -87,10 +87,23 @@ The RLE is 32-bit ARGB, alpha first. Each control byte `c` either repeats the ne
 
 **DisplaySink (0xB009).** Each time guidance starts or stops, the KOMBI sends event 0x8001 with `3ff0000000000000 01 0115 00a0 00`, a double 1.0 then possibly 277 x 160, and the head unit answers with method 0x0001 `0000`. What the numbers mean is not known. They may be the size of the cluster's picture area.
 
+## Step 3: first live test (parked, owner's go-ahead)
+
+On 2026-11-15, with the car parked and no route active, a script on the owner's Mac connected to the KOMBI through an SSH tunnel via the head unit (`ssh -N -L 30602:160.48.199.96:30502 root@<HU>`), so nothing was stored on the car. It sent this car's own captured route start (57 frames) under its own SOME/IP client ID 0x7E01. The texts were replaced: road names became "TEST" and the next maneuver's distance became "1234". After 10 s it sent the factory clear (6 frames).
+
+Result:
+
+- The KOMBI accepted all 63 frames (response 0x80, E_OK).
+- The cluster showed the factory turn graphic, with **"TEST" at the top and "1234 m" at the bottom**, with no route running in iDrive.
+- The clear worked.
+
+So a second client can drive the guidance display on a G01 without a factory route, the same way NBT-AAD does on the J29. Text in the road-name and distance fields is shown as sent.
+
 ## Still open
 
-- Whether the KOMBI shows a bitmap resource, or any guidance, without an active factory route, and where it puts a bitmap that is not a road shield (for example as a junction picture). Only a live test can answer this.
+- ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).
+- Where the KOMBI puts a bitmap resource that is not a road shield (for example as a junction picture), and whether it is mirrored to the HUD.
 - How the factory session reacts to a second client using the same instance 0xC8 (NBT-AAD's J29 work says it copes, with its own client ID 0x7E01).
 - The cluster's configuration message (formats, sizes). It was not in this capture, so it is probably sent once at start-up.
 
-Step 3 (a live test while parked, which needs the owner's go-ahead) answers the first two.
+

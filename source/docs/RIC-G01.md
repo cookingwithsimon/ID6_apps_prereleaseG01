@@ -117,6 +117,21 @@ On 2026-11-15 `ric-gauge.py` read the DME over the gateway's HSFZ port (6801, th
 
 **Distance unit.** The byte right after the distance text is the unit. The factory sends 3 for turn distances (metres) and 0 for the destination distance. The HUD showed 0 = km, 1 = mi, 2 = mls, 3 = m, 4 = yd, 5 = ft, and ft for every value from 6 up (255 included). There is no value without a unit, so the distance field always adds one. A number with no unit has to go in the road-name text instead. `ric-gauge.py --top` does that ("BOOST 0.0 95C") and sends an empty distance text, which **hides the distance box completely**. The owner's photos (not committed) show both layouts. The turn graphic from the replayed route stays on screen in both.
 
+## Step 6: what draws the map and arrow (parked, owner's go-ahead)
+
+The maneuver model (`0x000A` type 15) payload is: id, type, `00 00`, previous maneuver id, `00`, next maneuver id, **turn kind** (1 byte), then the ids of its road (type 40), intersection (type 34), guiding (type 7) and distance (type 29) models, then 7 zero bytes and an optional list of lane models (a byte count, then type 27 ids). `ffffffff` means "none". `ric-nomap.py` changed maneuver 0 one step at a time; the owner photographed each step:
+
+| Step | Change | HUD |
+|---|---|---|
+| 1 | none | the map sketch, as before |
+| 2 | guiding ref set to none | **the sketch is gone**, a plain right-turn arrow instead |
+| 3 | intersection ref also none | the same arrow |
+| 4 | turn kind 0 | **no arrow: only the text line** |
+| 5 | turn kind 6 | a left-turn arrow |
+| 6 | as 3, list with only this maneuver | right-turn arrow (kind 7) |
+
+So the guiding model (type 7) draws the map sketch, and the turn kind picks the arrow icon (7 = right, 6 = left, 0 = none). For a text-only HUD, send maneuver 0 with no guiding or intersection model and turn kind 0.
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).

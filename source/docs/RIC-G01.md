@@ -49,11 +49,48 @@ The head unit can already send its own pictures to the cluster and HUD in the fa
 
 So the one place where the cluster accepts a picture we draw ourselves is a bitmap resource (RLE, and PNG or JPG if the config says so) used as a junction view or PiP for "ICHUD". The cluster decides where and how that is shown. Text fields (distance, road name) are the simpler fallback.
 
-## What step 1 cannot answer
+## Step 2: the factory navigation on this car (read-only capture)
 
-- The numeric method IDs on the G01, and whether they match the J29's. The service ID and method names match, so it is likely.
-- The G01 cluster's actual configuration (formats, sizes, text lengths). It is sent at run time.
-- Which of 160.48.199.96 and .97 is the KOMBI's RICServiceGuidance endpoint.
-- Whether the cluster shows anything without an active route, and what the factory nav does if a second client writes to the instance.
+On 2026-11-15, with the car parked, `tcpdump -p -i vlan73` on the head unit was streamed to a PC over SSH while a nav route was started, cancelled, started again and cancelled. That covered 58 s and 3,165 packets. Nothing was sent by us. The capture itself is not committed, because it contains street names near the owner's home.
 
-Step 2 (watching the factory navigation start a route while parked, read-only) answers the first three. Only step 3 (a live test, needs the owner's go-ahead) answers the last.
+**Who is who** (from the SOME/IP-SD offers):
+
+| Host | Offers | What it is |
+|---|---|---|
+| 160.48.199.96 | 0xB006 RICServiceGuidance (TCP/UDP 30502), 0xB009 DisplaySink (30503), 0xB00A ConsumptionHistory (30504), 0xB00E RICServiceList (30502), 0xB011 KombiInterface_2 (30501) | **The KOMBI** |
+| 160.48.199.97 | 0xB001 Telephone, 0xB002 DataCommunication, 0xB003 SatellitePositioning, 0xB007 RemoteServices | The ATM telematics unit (`BMW.ATM` in services.conf) |
+| 160.48.199.16, .117, .93, .33, .34, .6 | many other services | other ECUs, not relevant here |
+
+**The guidance session.** The factory head unit uses SOME/IP client ID 0x0001 with interface version 1 on one TCP connection to 160.48.199.96:30502. Every body starts with instance handle 0x000000C8, the same handle as on the J29. Each call is a request (message type 0x00), and every one in the capture was answered with a response (0x80) and return code 0 (E_OK). The method IDs and model types are the **same as the J29's**:
+
+| Method | Calls | Seen |
+|---|---|---|
+| 0x0002 | 14 | 9-byte body (handle, model id, type). The answer is one byte, 00 or 01, so this is **`checkResource`** ("does the cluster still hold resource X?"). |
+| 0x0003 | 13 | **`setResource`**: type 3 = text (road names, UTF-16BE) and **type 1 = bitmap** (below). |
+| 0x0004 | 15 | handle only. Closes every block, after 0x000C or a lone distance update (a commit; name not known). |
+| 0x0009 | 31 | type 17 (destination info, with a distance text) and type 33 (guidance state). |
+| 0x000A | 37 | type 15 ManeuverDescription, 29 ManeuverDistance, 34. |
+| 0x000B | 9 | type 7 guiding model; type 10 once. |
+| 0x000C | 11 | type 32 maneuver list. A 42-byte list is the empty list sent on cancel. |
+| 0x000E | 11 | type 40. |
+| 0x0010 | 6 | type 27 lane model. |
+
+A route start is about 50 calls in about 0.7 s. A cancel is `0x0009` (state) three times, an empty `0x000C`, `0x0004`, then `0x0009` type 17. That is the same shape as NBT-AAD's J29 `cancel[]` template.
+
+**A bitmap resource, decoded.** One `setResource` carried model id 0x01000000, type 1, 5,638 bytes. Its payload after the 17-byte frame header is:
+
+```
+u32 model id (01 00 00 00) | u8 type (01) | u16 width (0x0034 = 52) | u16 height (0x0021 = 33) | u32 data length (0x15E8 = 5608) | RLE data
+```
+
+The RLE is 32-bit ARGB, alpha first. Each control byte `c` either repeats the next pixel `c & 0x7F` times (top bit set) or is followed by `c` literal pixels (top bit clear). This decodes to exactly 52 x 33 = 1,716 pixels and uses all 5,608 bytes. The picture is a red route-number shield with "77" on it, the road-number icon the nav shows next to a street name. So the head unit already sends the KOMBI its own RLE32 pictures over this service, in a format we can now write.
+
+**DisplaySink (0xB009).** Each time guidance starts or stops, the KOMBI sends event 0x8001 with `3ff0000000000000 01 0115 00a0 00`, a double 1.0 then possibly 277 x 160, and the head unit answers with method 0x0001 `0000`. What the numbers mean is not known. They may be the size of the cluster's picture area.
+
+## Still open
+
+- Whether the KOMBI shows a bitmap resource, or any guidance, without an active factory route, and where it puts a bitmap that is not a road shield (for example as a junction picture). Only a live test can answer this.
+- How the factory session reacts to a second client using the same instance 0xC8 (NBT-AAD's J29 work says it copes, with its own client ID 0x7E01).
+- The cluster's configuration message (formats, sizes). It was not in this capture, so it is probably sent once at start-up.
+
+Step 3 (a live test while parked, which needs the owner's go-ahead) answers the first two.

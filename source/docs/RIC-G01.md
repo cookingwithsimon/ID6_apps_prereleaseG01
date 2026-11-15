@@ -115,7 +115,7 @@ On 2026-11-15, after the same test route start, a script sent 20 updates at 1 pe
 
 On 2026-11-15 `ric-gauge.py` read the DME over the gateway's HSFZ port (6801, through the same SSH tunnel; UDS 0x22 reads of the BoostDeck DIDs 4201, 4205 and 4300 only) and put boost in psi in the distance field and "BOOST psi" plus coolant temperature in the road-name field, 5 times a second. The HUD showed it. Coolant read 95 °C and boost 0.0 psi (no boost with the engine at rest). The gateway closed the first few connections, then accepted one; BoostDeck may still have held it.
 
-**Distance unit.** The byte right after the distance text is the unit. The factory sends 3 for turn distances (metres) and 0 for the destination distance. The HUD showed 0 = km, 1 = mi, 2 = mls, 3 = m, 4 = yd, 5 = ft, and ft for every value from 6 up (255 included). There is no value without a unit, so the distance field always adds one. A number with no unit has to go in the road-name text instead (`ric-gauge.py --top`).
+**Distance unit.** The byte right after the distance text is the unit. The factory sends 3 for turn distances (metres) and 0 for the destination distance. The HUD showed 0 = km, 1 = mi, 2 = mls, 3 = m, 4 = yd, 5 = ft, and ft for every value from 6 up (255 included). There is no value without a unit, so the distance field always adds one. A number with no unit has to go in the road-name text instead. `ric-gauge.py --top` does that ("BOOST 0.0 95C") and sends an empty distance text, which **hides the distance box completely**. The owner's photos (not committed) show both layouts. The turn graphic from the replayed route stays on screen in both.
 
 ## Still open
 

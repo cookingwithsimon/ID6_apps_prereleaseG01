@@ -100,10 +100,17 @@ Result:
 
 So a second client can put content on the G01's HUD without a factory route, the same way NBT-AAD does on the J29. Text in the road-name and distance fields is shown as sent.
 
+## Step 4: update rate (parked, owner's go-ahead)
+
+On 2026-11-15, after the same test route start, a script sent 20 updates at 1 per second and then 20 at 5 per second. Each update was three frames: `0x0003` with new text for the road-name resource `03000000`, `0x000A` type 29 with a new distance for maneuver 0, and `0x0004`. Every frame got E_OK, and an update took about 7 ms round trip through the SSH tunnel.
+
+- **The distance changed on the HUD at both rates.** 5 updates a second is fine for a number that changes, such as a gauge value.
+- **The road name stayed "TEST".** Re-sending a text resource under an id the cluster already holds doesn't change what it shows. In the factory capture each new road name gets a **new** resource id (`03000004`, `03000005`), a new road model (type 40, `27000003`, ...) that points at it, then the maneuver, the list and `0x0004`. So resources are probably fixed once set, and `checkResource` (0x0002) is how the head unit asks whether one is still held (*inferred*). A follow-up test (`ric-rate2.py`) tries three ways to change the text.
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).
-- How fast the text fields can be updated (the factory sends a lone distance update as `0x000A` type 29 plus `0x0004`).
+- ~~How fast the text fields can be updated~~: the distance updates at 5 Hz (step 4). How to change the road-name text is still open.
 - Where the KOMBI puts a bitmap resource that is not a road shield (for example as a junction picture), and whether the HUD shows it.
 - Why the cluster did not show the guidance (display mode, or coding).
 - How the factory session reacts to a second client using the same instance 0xC8 (NBT-AAD's J29 work says it copes, with its own client ID 0x7E01).

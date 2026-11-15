@@ -105,12 +105,16 @@ So a second client can put content on the G01's HUD without a factory route, the
 On 2026-11-15, after the same test route start, a script sent 20 updates at 1 per second and then 20 at 5 per second. Each update was three frames: `0x0003` with new text for the road-name resource `03000000`, `0x000A` type 29 with a new distance for maneuver 0, and `0x0004`. Every frame got E_OK, and an update took about 7 ms round trip through the SSH tunnel.
 
 - **The distance changed on the HUD at both rates.** 5 updates a second is fine for a number that changes, such as a gauge value.
-- **The road name stayed "TEST".** Re-sending a text resource under an id the cluster already holds doesn't change what it shows. In the factory capture each new road name gets a **new** resource id (`03000004`, `03000005`), a new road model (type 40, `27000003`, ...) that points at it, then the maneuver, the list and `0x0004`. So resources are probably fixed once set, and `checkResource` (0x0002) is how the head unit asks whether one is still held (*inferred*). A follow-up test (`ric-rate2.py`) tries three ways to change the text.
+- **The road name stayed "TEST".** Re-sending a text resource under an id the cluster already holds doesn't change what it shows. In the factory capture each new road name gets a **new** resource id (`03000004`, `03000005`), a new road model (type 40, `27000003`, ...) that points at it, then the maneuver, the list and `0x0004`. A follow-up test (`ric-rate2.py`, 2 s per step) tried two ways to change it, and **both worked**:
+
+- **A (works, simplest):** `0x0003` with new text under the same id `03000000`, then re-send the road model `0x000E` `27000000`, the distance, maneuver 0 (`0x000A` type 15 `0f000000`), the maneuver list `0x000C` and `0x0004`. So the cluster keeps the new text but only redraws when the models that use it are sent again. Six frames take 11 to 14 ms.
+- **B (works):** a new text id each time (`03000101`, ...), with `27000000` pointed at it, then the distance and `0x0004`.
+- B5, the 9th new text id that session, was refused with message type 0x81 (error) and return code 0x26. **The cluster holds a limited number of text resources.** The factory nav reuses the same ids (`03000000` to `03000005`) on every route, and `checkResource` answers 01 for them on the second route. So a custom display should reuse a fixed set of ids, as in A.
 
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).
-- ~~How fast the text fields can be updated~~: the distance updates at 5 Hz (step 4). How to change the road-name text is still open.
+- ~~How fast the text fields can be updated~~: the distance updates at 5 Hz, and the road-name text changes when the road model, maneuver and list are re-sent after it (step 4).
 - Where the KOMBI puts a bitmap resource that is not a road shield (for example as a junction picture), and whether the HUD shows it.
 - Why the cluster did not show the guidance (display mode, or coding).
 - How the factory session reacts to a second client using the same instance 0xC8 (NBT-AAD's J29 work says it copes, with its own client ID 0x7E01).

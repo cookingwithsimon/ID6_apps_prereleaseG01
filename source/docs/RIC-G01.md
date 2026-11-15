@@ -83,7 +83,7 @@ A route start is about 50 calls in about 0.7 s. A cancel is `0x0009` (state) thr
 u32 model id (01 00 00 00) | u8 type (01) | u16 width (0x0034 = 52) | u16 height (0x0021 = 33) | u32 data length (0x15E8 = 5608) | RLE data
 ```
 
-The RLE is 32-bit ARGB, alpha first. Each control byte `c` either repeats the next pixel `c & 0x7F` times (top bit set) or is followed by `c` literal pixels (top bit clear). This decodes to exactly 52 x 33 = 1,716 pixels and uses all 5,608 bytes. The picture is a red route-number shield with "77" on it, the road-number icon the nav shows next to a street name. So the head unit already sends the KOMBI its own RLE32 pictures over this service, in a format we can now write.
+The RLE is 32 bits per pixel, alpha first, then **blue, green, red** (step 7 showed this: a picture sent as orange in ARGB order came out blue). Each control byte `c` either repeats the next pixel `c & 0x7F` times (top bit set) or is followed by `c` literal pixels (top bit clear). This decodes to exactly 52 x 33 = 1,716 pixels and uses all 5,608 bytes. The picture is a blue route-number shield with "77" on it, the road-number icon the nav shows next to a street name. So the head unit already sends the KOMBI its own RLE32 pictures over this service, in a format we can now write.
 
 **DisplaySink (0xB009).** Each time guidance starts or stops, the KOMBI sends event 0x8001 with `3ff0000000000000 01 0115 00a0 00`, a double 1.0 then possibly 277 x 160, and the head unit answers with method 0x0001 `0000`. What the numbers mean is not known. They may be the size of the cluster's picture area.
 
@@ -131,6 +131,15 @@ The maneuver model (`0x000A` type 15) payload is: id, type, `00 00`, previous ma
 | 6 | as 3, list with only this maneuver | right-turn arrow (kind 7) |
 
 So the guiding model (type 7) draws the map sketch, and the turn kind picks the arrow icon (7 = right, 6 = left, 0 = none). For a text-only HUD, send maneuver 0 with no guiding or intersection model and turn kind 0.
+
+## Step 7: our own picture on the HUD (parked, owner's go-ahead)
+
+`ric-pic.py` drew a bar gauge (outline, fill, tick marks) and sent it as bitmap resource `01000000`, with road model `27000000` pointing at it and at the text (`refs = [01000000, 03000000]`, the same layout the factory uses for a road shield), the map and arrow hidden as in step 6.
+
+- **52 x 33 (the factory shield size): shown**, as an icon left of the text line. The owner photographed it.
+- **128 x 48 and 240 x 80: accepted (E_OK) but not shown.** The icon slot seems limited to the shield size. A bigger picture needs another slot (the junction view or "PiP for ICHUD" from step 1), which has not been tried.
+- **Updating it works:** re-sending the bitmap under the same id, then the road model, maneuver, list, `0x0004` and `0x0009`, filled the bar in 10 steps at about 3 a second, about 2 ms each.
+- The colours are alpha, blue, green, red (see the step 2 note).
 
 ## Still open
 

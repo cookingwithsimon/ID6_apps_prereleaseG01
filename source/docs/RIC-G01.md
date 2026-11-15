@@ -111,6 +111,12 @@ On 2026-11-15, after the same test route start, a script sent 20 updates at 1 pe
 - **B (works):** a new text id each time (`03000101`, ...), with `27000000` pointed at it, then the distance and `0x0004`.
 - B5, the 9th new text id that session, was refused with message type 0x81 (error) and return code 0x26. **The cluster holds a limited number of text resources.** The factory nav reuses the same ids (`03000000` to `03000005`) on every route, and `checkResource` answers 01 for them on the second route. So a custom display should reuse a fixed set of ids, as in A.
 
+## Step 5: a live value on the HUD (parked, owner's go-ahead)
+
+On 2026-11-15 `ric-gauge.py` read the DME over the gateway's HSFZ port (6801, through the same SSH tunnel; UDS 0x22 reads of the BoostDeck DIDs 4201, 4205 and 4300 only) and put boost in psi in the distance field and "BOOST psi" plus coolant temperature in the road-name field, 5 times a second. The HUD showed it. Coolant read 95 °C and boost 0.0 psi (no boost with the engine at rest). The gateway closed the first few connections, then accepted one; BoostDeck may still have held it.
+
+**Distance unit.** The byte right after the distance text is the unit. The factory sends 3 for turn distances (metres) and 0 for the destination distance. Values 0 to 5 cycle through the cluster's distance units (the owner saw m, mi, km, yd and ft), and 6 and above all show ft. There is no value without a unit, so the distance field always adds one. A number with no unit has to go in the road-name text instead (`ric-gauge.py --top`).
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).

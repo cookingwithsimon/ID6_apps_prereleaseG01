@@ -28,6 +28,7 @@ class MhdMaps : public bmw::PluginApp {
 #endif
     char result_[128];
     size_t used_;
+    char gateway_[16];
 
     void status(const char* value) {
 #ifdef PERF_LAB
@@ -58,6 +59,7 @@ class MhdMaps : public bmw::PluginApp {
     template <unsigned Value, unsigned Function> bool selectMap(const bmw::Parcel&) {
         reap();
         if (pipe_>=0 || child_>0) return true;
+        if (!gateway_[0]) { status("gateway-ip.txt missing"); return true; }
         ++generation_; // a prior result's dismissal cannot erase this request
         int channel[2];
         if (pipe(channel)<0) { status("Could not start map request"); return true; }
@@ -76,7 +78,7 @@ class MhdMaps : public bmw::PluginApp {
         resultModel_=49u+Function;
 #endif
 #endif
-        const char* args[]={kMapWorker,"--host","169.254.21.3",mode,argument,0};
+        const char* args[]={kMapWorker,"--host",gateway_,mode,argument,0};
         if (fcntl(channel[0],F_SETFL,O_NONBLOCK)>=0 &&
             fcntl(channel[0],F_SETFD,FD_CLOEXEC)>=0 && fcntl(channel[1],F_SETFD,FD_CLOEXEC)>=0)
             child_=launch(args,channel[1]);
@@ -104,11 +106,15 @@ public:
 #ifdef PERF_LAB
           resultModel_(50u),
 #endif
-          used_(0) {}
+          used_(0) {
+        gateway_[0] = 0;
+    }
     virtual ~MhdMaps() { stopWorker(); }
     virtual bool onFinalize() { stopWorker(); return true; }
     virtual bool onInit() {
         stopWorker();
+        gateway_[0] = 0;
+        load_gateway_ip(kMapWorker, gateway_, sizeof gateway_);
         typedef bmw::Delegate<bool,const bmw::Parcel&> Action;
         Action action;
         action.m_obj=this;

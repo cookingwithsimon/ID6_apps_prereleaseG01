@@ -3,15 +3,19 @@
 Run commands from `source/`. Host tests use a C compiler, Make, and Python 3. No car or BMW files are needed for these tests.
 
 ```sh
-make -C native test
+make -C native CC=gcc test
 python3 tools/test_probe_signals.py
 ```
 
 ## Native payload
 
-If you need the toolchain for a native build, the [QNX SDP 6.5 archive](https://archive.org/details/qnxsdp-65.7z) includes the SDK and a license key generator, according to the archive listing.
+This fork builds with the MIT [bmw-tools](https://github.com/agent00jackson/bmw-tools) LLVM SDK for QNX 6.5 ARMv7 (clang and lld). `native/build.sh` still calls `qcc` from a QNX SDP install. Use the CMake build below.
 
-1. Prepare a licensed QNX SDP 6.5 Linux x86 toolchain with ARM GCC 4.4.2. Set `QNX_HOST`, `QNX_TARGET`, and `QNX_CONFIGURATION` if your installation differs from the paths in `native/build.sh`.
+The SDK libc import list omits `getppid`, `lstat`, and `rmdir`. CMake generates a link-only `libc.so.3` with those symbols added and the same SONAME, so the head-unit binary imports them from the car's libc. Do not copy that generated stub onto the car. Do not copy the SDK's `usr/lib/*.so` stubs onto the car either. They are trap libraries for the linker.
+
+1. Install the bmw-tools QNX SDK and note `share/cmake/QnxSdk/toolchain.cmake`.
+
+2. Copy this head unit's framework libraries. They are the link inputs for an install build. Use a binary-safe transfer, and pass the legacy SSH algorithms only for that ENET connection.
 
 ```sh
 mkdir -p native/frameworks
@@ -20,15 +24,19 @@ ssh root@HEAD_IP 'cat /opt/hmi/ID5/lib/libCoreFramework.A.so' > native/framework
 shasum -a 256 native/frameworks/*.so
 ```
 
-   Replace `HEAD_IP` with the head-unit SSH IP. Use a binary-safe transfer. If the old SSH server needs a legacy algorithm, configure it for that specific ENET connection. Use the head unit's existing library copies as link inputs. Where SDK linker versions differ, set `NBTEVO_RUNTIME_DIR` to a private directory with matching `libm.so.2`, `libsocket.so.3`, and `libstdc++.so.6` from the authorized unit or its reference image. The build also accepts `NBTEVO_FRAMEWORKS_DIR`.
-3. Generate the RHMI resources with Python and Pillow. The scripts use host fonts, so image bytes can differ across hosts. DejaVu fonts are the fallback on Linux.
+3. Configure and build on the Linux filesystem. `RHMI_LIBDIR` must be the directory from the step above when the binaries are meant for the car. Put the build directory on the Linux filesystem, not under a Windows mount.
 
 ```sh
-python3 -m pip install Pillow
-sh native/build.sh
+cmake -S native -B "$HOME/id6-build" -G "Unix Makefiles" \
+  -DCMAKE_TOOLCHAIN_FILE="$SDK/share/cmake/QnxSdk/toolchain.cmake" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRHMI_LIBDIR="$PWD/native/frameworks"
+cmake --build "$HOME/id6-build"
 ```
 
-The script compiles the native libraries, worker executables, and the small ARM file-operations helper. The XML and manifests in `native/plugin` are the current layouts. Use the matching image archives from the packaged release.
+On a host where `cc` is not installed, run the tests with `make -C native CC=gcc test`.
+
+The XML already in `native/plugin` is the 1440×540 layout. Do not run `native/tools/make_bars.py` or `native/tools/make_drive_apps.py` over those files. The image archives stay as they are; the HMI scales them to the width and height in the XML. Place `gateway-ip.txt` in each installed app directory, containing one IPv4 address and nothing else.
 
 ## New firmware
 

@@ -40,9 +40,14 @@ def entry(name, title, weight, connector, root_id, images=False):
     return doc, actions, models, states, state
 
 
+def box(value):
+    """Map a 1280x480 layout coordinate onto the 1440x540 panel (exactly 9/8)."""
+    return (int(value) * 9 + 4) // 8
+
+
 def position(component, x, y, width, height):
     properties = ET.SubElement(component, "properties")
-    for prop, value in ((20,x),(21,y),(9,width),(10,height)):
+    for prop, value in ((20,box(x)),(21,box(y)),(9,box(width)),(10,box(height))):
         ET.SubElement(properties, "property", id=str(prop), value=str(value))
 
 

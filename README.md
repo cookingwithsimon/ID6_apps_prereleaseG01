@@ -8,6 +8,17 @@ If your head unit needs temporary SSH access, use [Bavarian SSH Client](https://
 
 The porting workflow can be used to evaluate any iDrive 6 version. Prebuilt packages target the verified reference firmware and framework combination documented in the AgentReadMe. Other versions need a compatibility check and may need a car-specific build. HUD Gauges also requires a compatible factory windshield HUD.
 
+## This fork: 2018 X3 M40i (G01)
+
+Head unit NBTevo_Y24073J, I-level S15A-24-7-530, 1440×540 panel.
+
+- Layouts in `source/native/plugin` are scaled from 1280×480 to 1440×540.
+- Each app reads the diagnostic gateway from `gateway-ip.txt` beside its worker. A missing or invalid file sends no diagnostic traffic. There is no built-in gateway address.
+- Build with the MIT bmw-tools LLVM SDK for QNX 6.5 ARMv7 and `source/native/CMakeLists.txt`. An install build must be linked against this head unit's own `libAppFramework.A.so` and `libCoreFramework.A.so`. Any other framework pair is a compile check only.
+- BoostDeck still starts in PSI and Fahrenheit. OPTIONS switches to bar and Celsius.
+- The zip files in `packages/` are the upstream NBTevo_N18032I, 1280×480 payloads. Do not install them on this car.
+- HUD Gauges is not part of this port. The published worker looks for a MOST HUDTerminal at function block 82/00 and sends nothing when that host, or the 340i cluster layout, is absent. Confirm that host while parked before any HUD install.
+
 ## Tell your agent what to install
 
 Choose **MHD+ Suite** or **Bootmod3 Suite**. Also say **yes or no to the xDelete-style xDrive menu** and **yes or no to HUD Gauges**. Bootmod3 and xDrive Control are beta packages. xDrive Control is still being tested, with no guarantee of compatibility or operation.

@@ -24,7 +24,11 @@ build/mhd-maps: src/collector.c $(CORE) $(HEADERS) | build
 build/test-core: tests/test_core.c $(CORE) $(HEADERS) | build
 	$(CC) $(CFLAGS) -Isrc $(filter %.c,$^) -lm -o $@
 
-test: build/boostdeck-collector build/shift-deck build/mhd-maps build/test-core
+build/test-gateway: tests/test_gateway.c src/gateway_ip.h | build
+	$(CC) $(CFLAGS) -Isrc $(filter %.c,$^) -o $@
+
+test: build/boostdeck-collector build/shift-deck build/mhd-maps build/test-core build/test-gateway
 	./build/test-core
+	./build/test-gateway
 	$(PYTHON) -B tests/test_transport.py
 	$(PYTHON) -B tests/test_drive_apps.py

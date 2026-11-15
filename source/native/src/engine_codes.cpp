@@ -8,7 +8,6 @@
 namespace {
 const unsigned kCodesPollKey = 0x4543504cu;
 const unsigned kCodePageSize = 4;
-const char kCodesGateway[] = "169.254.21.3";
 const char kEngineWorker[] = "/var/opt/hmi/data/ID5/Plugins/EngineCodes/engine-codes-qnx";
 
 void format_code_line(char* text, size_t size, const char* line, int length, char* detail, size_t detail_size) {
@@ -43,6 +42,7 @@ class EngineCodes : public bmw::PluginApp {
     size_t code_size_;
     unsigned code_page_;
     unsigned poll_generation_;
+    char gateway_[16];
 
     void startCodes(bool clear);
     void pollCodes();
@@ -72,11 +72,15 @@ public:
                 const char* worker=kEngineWorker)
         : PluginApp(dispatcher,name,major,minor,version,config,resources),
           worker_(worker), codes_pid_(-1), codes_fd_(-1), code_size_(0),
-          code_page_(0), poll_generation_(0) {}
+          code_page_(0), poll_generation_(0) {
+        gateway_[0] = 0;
+    }
 
     virtual ~EngineCodes() { stopWorker(); }
     virtual bool onInit() {
         stopWorker();
+        gateway_[0] = 0;
+        load_gateway_ip(worker_, gateway_, sizeof gateway_);
         typedef bmw::Delegate<bool,const bmw::Parcel&> Action;
         Action action;
         action.m_obj=this;
@@ -122,12 +126,16 @@ public:
 
 void EngineCodes::startCodes(bool clear) {
     if (codes_fd_>=0 || codes_pid_>0) return;
+    if (!gateway_[0]) {
+        updateModel(80u, bmw::BasicString<char>("gateway-ip.txt missing"));
+        return;
+    }
     int channel[2];
     if (pipe(channel)<0) {
         updateModel(80u,bmw::BasicString<char>("Could not start diagnostics"));
         return;
     }
-    const char *args[]={worker_,"--host",kCodesGateway,clear ? "--clear" : "--codes",0};
+    const char *args[]={worker_,"--host",gateway_,clear ? "--clear" : "--codes",0};
     if (fcntl(channel[0],F_SETFL,O_NONBLOCK)>=0 &&
         fcntl(channel[0],F_SETFD,FD_CLOEXEC)>=0 && fcntl(channel[1],F_SETFD,FD_CLOEXEC)>=0)
         codes_pid_=launch(args,channel[1]);
@@ -169,7 +177,7 @@ void EngineCodes::renderCodes() {
     unsigned lines=0;
     for (const char *line=first;line && line[1];line=strchr(line+1,'\n')) ++lines;
     unsigned pages=lines ? (lines+kCodePageSize-1)/kCodePageSize : 1;
-    code_page_%=pages;
+    while (code_page_>=pages) code_page_-=pages;
     char text[160];
     int header=first ? static_cast<int>(first-code_result_) : static_cast<int>(code_size_);
     if (header>110) header=110;

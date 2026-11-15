@@ -17,9 +17,9 @@ The packaged build is for **NBTevo_N18032I**, **1280 × 480**, with this framewo
 | libAppFramework.A.so | 93f4c7ab7e59c0adf7923b9b491de06165ba9d97bbe7412292e7ddc418ca2123 |
 | libCoreFramework.A.so | 64ba154c68c772f9ca779fc18507f5b34715be58ded4a198b8a62b90d16c3ee0 |
 
-Check the gateway used by the payload, 169.254.21.3. If the firmware, frameworks, resolution, or gateway differ, use the [porting workflow](source/docs/PORTING.md) and build for the actual target. Native changes need the QNX SDP 6.5 Linux host tools and ARM GCC 4.4.2. Matching packaged binaries and compatible layout resource changes do not need QNX on the ENET computer.
+This fork's source targets a 1440×540 panel. Plugins load the gateway from `gateway-ip.txt` beside the worker and send nothing when that file is missing or invalid. The packages under `packages/` remain the NBTevo_N18032I, 1280×480 builds. Do not install those packages on this G01.
 
-If you need the toolchain for a native build, the [QNX SDP 6.5 archive](https://archive.org/details/qnxsdp-65.7z) includes the SDK and a license key generator, according to the archive listing. See [Build and deploy](source/docs/BUILD.md) for toolchain setup.
+Native builds use the bmw-tools LLVM SDK for QNX 6.5 ARMv7 (clang and lld) through `source/native/CMakeLists.txt`. Link an install against the head unit's own framework libraries. See [Build and deploy](source/docs/BUILD.md).
 
 ## Stage and verify
 
@@ -31,6 +31,6 @@ After verification, have the owner hold the volume knob until iDrive goes dark, 
 
 ## Optional HUD Gauges
 
-Install the [HUD Gauges package](packages/hud-gauges.zip) when the owner selects it and the car has the matching reference configuration. Verify the reference firmware, framework hashes, resolution, and gateway above. The worker also expects a unique factory MOST HUDTerminal service 82/00 at node 0101. Treat other configurations as porting targets.
+Install the [HUD Gauges package](packages/hud-gauges.zip) only when the owner selects it and the car has the matching reference configuration. This G01 fork does not. The published worker expects a factory MOST HUDTerminal service 82/00 at node 0101, and it sends nothing when that host or the reference cluster layout is absent. On a G01, confirm a 82/00 host in the MOST registry while parked before treating HUD Gauges as installable. The package's `gateway-ip.txt` is the reference car's address.
 
 Extract and verify SHA256SUMS. Stage only the HudTest directory and check for an existing HudTest or an app using connector ID 107. Preserve the prior app outside Plugins if replacing it. Keep the included gateway-ip.txt beside the worker. Set hud-shape-qnx executable, verify the uploaded files, and restart iDrive while parked. Open My Vehicle → HUD Gauges and check Show HUD gauges. Verify the tach and PSI display, that the checkbox persists across a restart, and that unchecking clears the overlay. If the display fails its parked checks, turn it off and restore the prior app folder or remove HudTest from Plugins, then restart iDrive.

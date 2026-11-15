@@ -28,6 +28,7 @@ class ShiftDeck : public bmw::PluginApp {
     unsigned bar_, lights_;
     int rpm_,kph_;
     bool shift_;
+    char gateway_[16];
 #ifdef NATIVE_SHIFT_SMOOTH
     bool metric_;
     double rpm_from_;
@@ -163,6 +164,7 @@ public:
         : PluginApp(d,name,maj,min,version,cfg,res),socket_(-1),child_(-1),generation_(0),
           visible_(false),target_(kDefaultTarget),retry_at_(0),bar_(0),lights_(0),
           rpm_(-2),kph_(-2),shift_(false) {
+        gateway_[0] = 0;
         memset(&frame_,0,sizeof frame_);
 #ifdef NATIVE_SHIFT_SMOOTH
         metric_=false;
@@ -174,6 +176,8 @@ public:
     virtual bool onFinalize() { shutdown(); return true; }
     virtual bool onInit() {
         shutdown();
+        gateway_[0] = 0;
+        load_gateway_ip(kShiftWorker, gateway_, sizeof gateway_);
         memset(&frame_,0,sizeof frame_);
         bar_=0;
         lights_=static_cast<unsigned>(-1);
@@ -227,8 +231,8 @@ public:
         if (generation!=generation_ || socket_<0) return true;
         reap();
         uint64_t now=bd_mono_ms();
-        if (visible_ && child_<=0 && now>=retry_at_) {
-            const char* args[]={kShiftWorker,"--host","169.254.21.3",0};
+        if (visible_ && child_<=0 && gateway_[0] && now>=retry_at_) {
+            const char* args[]={kShiftWorker,"--host",gateway_,0};
             child_=launch(args,-1);
             retry_at_=now+1000;
         }

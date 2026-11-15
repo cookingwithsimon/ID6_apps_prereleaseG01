@@ -21,9 +21,13 @@ MULTICOLOR = ('#58ceff', '#5de0bf', '#cbacff', '#ffbe70',
 THEMES = tuple(name for name, _ in COLORS) + ('Multicolor',)
 STEPS, FIRST = 32, 55000
 
+def box(value):
+    """Map a 1280x480 layout coordinate onto the 1440x540 panel (exactly 9/8)."""
+    return (int(value) * 9 + 4) // 8
+
 def add_props(component, x, y, w, h, image=False):
     props = ET.SubElement(component, 'properties')
-    for prop, value in [(20,x), (21,y), (9,w), (10,h)] + ([(2,'false'),(3,'true')] if image else []):
+    for prop, value in [(20,box(x)), (21,box(y)), (9,box(w)), (10,box(h))] + ([(2,'false'),(3,'true')] if image else []):
         ET.SubElement(props, 'property', id=str(prop), value=str(value))
 
 def label(parent, identifier, model):

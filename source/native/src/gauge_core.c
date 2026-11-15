@@ -11,7 +11,8 @@
 uint64_t bd_mono_ms(void) {
     struct timespec t;
     if (clock_gettime(CLOCK_MONOTONIC, &t)) return 0;
-    return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
+    /* nsec is below 1e9, so this stays a 32-bit divide and does not call __aeabi_uldivmod. */
+    return (uint64_t)t.tv_sec * 1000u + (uint32_t)t.tv_nsec / 1000000u;
 }
 
 /* Payload bytes only, after the 62 DID prefix. Formula provenance: SIGNALS.md.
@@ -70,15 +71,34 @@ int bd_encode(const bd_frame *f, char *out, size_t len) {
     return (int)used;
 }
 
+/* Base-10 only. The link stubs used for this head unit do not export strtoull. */
+static int decimal_u64(char *p, char **end, uint64_t *out) {
+    uint64_t value = 0;
+    if (!isdigit((unsigned char)*p)) return 0;
+    while (isdigit((unsigned char)*p)) {
+        unsigned digit = (unsigned)(*p - '0');
+        if (value > 1844674407370955161ull ||
+            (value == 1844674407370955161ull && digit > 5u)) {
+            while (isdigit((unsigned char)*p)) ++p;
+            *end = p;
+            return 0;
+        }
+        value = value * 10u + digit;
+        ++p;
+    }
+    *end = p;
+    *out = value;
+    return 1;
+}
+
 static int unsigned_field(char **cursor, uint64_t max, uint64_t *out) {
     char *p=*cursor, *end;
-    unsigned long long value;
+    uint64_t value;
     while (isspace((unsigned char)*p)) ++p;
     /* scanf unsigned conversions accept negatives and wrap oversized values. */
     if (!isdigit((unsigned char)*p)) return 0;
-    errno=0; value=strtoull(p,&end,10);
-    if (errno==ERANGE || end==p || (*end && !isspace((unsigned char)*end)) || value>max) return 0;
-    *cursor=end; *out=(uint64_t)value; return 1;
+    if (!decimal_u64(p, &end, &value) || (*end && !isspace((unsigned char)*end)) || value>max) return 0;
+    *cursor=end; *out=value; return 1;
 }
 static int double_field(char **cursor, double *out) {
     char *p=*cursor, *end;
@@ -96,7 +116,8 @@ int bd_parse(const char *data, size_t len, bd_frame *out) {
     bd_frame f;
     uint64_t integer;
     unsigned i, fields;
-    if (!data || !out || len == 0 || len >= sizeof b || memchr(data, 0, len)) return 0;
+    if (!data || !out || len == 0 || len >= sizeof b) return 0;
+    for (i = 0; i < len; ++i) if (data[i] == 0) return 0;
     memcpy(b, data, len); b[len] = 0;
     memset(&f, 0, sizeof f);
     if (len<5 || !isspace((unsigned char)b[4])) return 0;

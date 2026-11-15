@@ -7,6 +7,7 @@
 #include <spawn.h>
 #include <string.h>
 #include <unistd.h>
+#include "gateway_ip.h"
 
 static inline pid_t launch(const char *const *args,int output) {
     pid_t child=-1;

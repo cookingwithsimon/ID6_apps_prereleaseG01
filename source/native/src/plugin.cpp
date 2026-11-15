@@ -31,7 +31,6 @@ const unsigned kDataUpdateMessage = 0x40000003u;
 const unsigned kPollKey = 0x4244504cu; // BDPL, private to this app
 const unsigned kActivePollIntervalMs = 25u;
 const unsigned kIdlePollIntervalMs = 250u;
-const char kGateway[] = "169.254.21.3";
 const char kCollector[] = "/var/opt/hmi/data/ID5/Plugins/BoostDeck/boostdeck-collector-qnx";
 const unsigned kBarCount = sizeof(kDialScales)/sizeof(kDialScales[0]);
 #ifdef PERF_LAB
@@ -56,6 +55,7 @@ class BoostDeck : public bmw::PluginApp {
     bool metric_;
 #endif
     uint64_t retry_at_;
+    char gateway_[16];
     void startVisibleCollector();
     void selectColor(unsigned color);
     char labels_[BD_COUNT][128];
@@ -71,6 +71,7 @@ public:
           metric_(false),
 #endif
           retry_at_(0) {
+        gateway_[0] = 0;
         resetDisplay();
     }
     virtual ~BoostDeck() { shutdown(); }
@@ -160,7 +161,10 @@ bool BoostDeck::onInit() {
     action.m_exec=&Action::execImpl<BoostDeck,&BoostDeck::changeUnits<true> >;
     addHandler(59u,action);
 #endif
+    gateway_[0] = 0;
+    load_gateway_ip(kCollector, gateway_, sizeof gateway_);
     selectColor(color_);
+    if (!gateway_[0]) updateModel(110u, bmw::BasicString<char>("gateway-ip.txt missing"));
     bmw::Parcel visible(true);
     for (unsigned i=0;i<kBarCount;++i) setProperty(200u+i,3u,visible);
     refresh();
@@ -188,9 +192,9 @@ bool BoostDeck::gaugeVisibility(const bmw::Parcel& event) {
 }
 
 void BoostDeck::startVisibleCollector() {
-    if (!gauges_visible_ || collector_>0 || fd_<0 ||
+    if (!gauges_visible_ || collector_>0 || fd_<0 || !gateway_[0] ||
         bd_mono_ms()<retry_at_) return;
-    const char *args[]={kCollector,"--host",kGateway,"--session",
+    const char *args[]={kCollector,"--host",gateway_,"--session",
 #ifdef PERF_LAB
                        "--ethanol",
 #endif

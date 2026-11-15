@@ -141,6 +141,12 @@ So the guiding model (type 7) draws the map sketch, and the turn kind picks the 
 - **Updating it works:** re-sending the bitmap under the same id, then the road model, maneuver, list, `0x0004` and `0x0009`, filled the bar in 10 steps at about 3 a second, about 2 ms each.
 - The colours are alpha, blue, green, red (see the step 2 note).
 
+## Step 8: the distance bar (parked, owner's go-ahead)
+
+Byte 5 of the distance model's payload (body offset 22) is a bar percentage, 0 to 100 or 255 for hidden. NBT-AAD's J29 code sets it for the J29's red distance bar. `ric-bar.py` stepped it through 0 to 100, with and without a distance text, then swept it at 5 updates a second. Every frame was accepted, but **the HUD showed no bar**, only the text. On this car the bar is either not drawn on the HUD or needs something more (an arrow, the distance value, the bar segmentation). Not pursued further.
+
+**Bigger pictures.** The nav program's strings show the full-size picture on the HUD is the junction view ("JV"): a picture-in-picture resource (`setPiPElement resourceID, colorDepth, packagingType, dimension`), a HighGuidingImageInfo model, and a maneuver "high" element that refers to it by HighGuidingPictureID. None of these were in the parked capture, so their layouts are unknown. A capture of the factory nav showing a junction view would give them.
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).

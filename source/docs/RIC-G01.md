@@ -94,15 +94,18 @@ On 2026-11-15, with the car parked and no route active, a script on the owner's 
 Result:
 
 - The KOMBI accepted all 63 frames (response 0x80, E_OK).
-- The cluster showed the factory turn graphic, with **"TEST" at the top and "1234 m" at the bottom**, with no route running in iDrive.
+- **The HUD** showed the factory turn graphic (turn arrow and road sketch), with **"TEST" as the road name and "1234 m" as the distance**, next to the speed and the speed-limit sign, with no route running in iDrive. The owner photographed it; the photo is not committed.
+- The 6WB cluster (in its COMFORT layout) showed nothing new. The cluster's own guidance view may need a different cluster display mode. Not checked.
 - The clear worked.
 
-So a second client can drive the guidance display on a G01 without a factory route, the same way NBT-AAD does on the J29. Text in the road-name and distance fields is shown as sent.
+So a second client can put content on the G01's HUD without a factory route, the same way NBT-AAD does on the J29. Text in the road-name and distance fields is shown as sent.
 
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).
-- Where the KOMBI puts a bitmap resource that is not a road shield (for example as a junction picture), and whether it is mirrored to the HUD.
+- How fast the text fields can be updated (the factory sends a lone distance update as `0x000A` type 29 plus `0x0004`).
+- Where the KOMBI puts a bitmap resource that is not a road shield (for example as a junction picture), and whether the HUD shows it.
+- Why the cluster did not show the guidance (display mode, or coding).
 - How the factory session reacts to a second client using the same instance 0xC8 (NBT-AAD's J29 work says it copes, with its own client ID 0x7E01).
 - The cluster's configuration message (formats, sizes). It was not in this capture, so it is probably sent once at start-up.
 

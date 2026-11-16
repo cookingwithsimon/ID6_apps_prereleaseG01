@@ -149,6 +149,16 @@ Byte 5 of the distance model's payload (body offset 22) is a bar percentage, 0 t
 
 **Step 9 (2026-11-16, guesses).** `ric-big.py` sent a 277 x 160 bitmap (accepted) and put its id in three u32 slots of the type 7 guiding model (payload offsets 14, 18, 50) and in the id slot of a type 10 model (offset 7), with the maneuver pointing at that model. Every frame was accepted. In all five cases the HUD showed only the text and the orange destination marker: no picture and no sketch. So none of those slots is a picture id, and the junction view really needs a capture.
 
+## Step 10: the high-guiding numbers (parked, owner's go-ahead)
+
+The intersection model (`0x000A` type 34) holds four doubles; maneuver 0 in the factory start has 10000, 3000, 142 and 40 (other maneuvers: second 235 to 3000, third 142 to 320, fourth 40 to 71). `ric-hg.py` brought the guiding models back and changed one number at a time. The owner filmed it.
+
+- **Third double (142):** 0, 45, 90 and 135 showed the plain right-turn arrow. 180 and above showed no arrow, only a thin line and the orange destination marker. It looks like the turn angle, used to pick or drop an arrow icon, not to rotate it smoothly.
+- **Fourth double, second double, and byte 5 of the type 7 model:** no visible change.
+- The detailed sketch with side streets from step 3 never came back in this run, so it needs more of the factory route than maneuver 0's models.
+
+So the high-guiding area can't serve as a needle gauge with these fields.
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).

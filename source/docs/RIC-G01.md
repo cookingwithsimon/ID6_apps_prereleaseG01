@@ -147,6 +147,8 @@ Byte 5 of the distance model's payload (body offset 22) is a bar percentage, 0 t
 
 **Bigger pictures.** The nav program's strings show the full-size picture on the HUD is the junction view ("JV"): a picture-in-picture resource (`setPiPElement resourceID, colorDepth, packagingType, dimension`), a HighGuidingImageInfo model, and a maneuver "high" element that refers to it by HighGuidingPictureID. None of these were in the parked capture, so their layouts are unknown. A capture of the factory nav showing a junction view would give them.
 
+**Step 9 (2026-11-16, guesses).** `ric-big.py` sent a 277 x 160 bitmap (accepted) and put its id in three u32 slots of the type 7 guiding model (payload offsets 14, 18, 50) and in the id slot of a type 10 model (offset 7), with the maneuver pointing at that model. Every frame was accepted. In all five cases the HUD showed only the text and the orange destination marker: no picture and no sketch. So none of those slots is a picture id, and the junction view really needs a capture.
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).

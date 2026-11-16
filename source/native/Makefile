@@ -21,14 +21,18 @@ build/shift-deck: src/collector.c $(CORE) $(HEADERS) | build
 build/mhd-maps: src/collector.c $(CORE) $(HEADERS) | build
 	$(CC) $(CFLAGS) -Isrc -DMHD_MAPS_ONLY $(filter %.c,$^) -lm -o $@
 
+build/hud-boost: src/hud_boost.c src/hud_boost_frames.h src/diagnostic_lease.h | build
+	$(CC) $(CFLAGS) -Isrc src/hud_boost.c -o $@
+
 build/test-core: tests/test_core.c $(CORE) $(HEADERS) | build
 	$(CC) $(CFLAGS) -Isrc $(filter %.c,$^) -lm -o $@
 
 build/test-gateway: tests/test_gateway.c src/gateway_ip.h | build
 	$(CC) $(CFLAGS) -Isrc $(filter %.c,$^) -o $@
 
-test: build/boostdeck-collector build/shift-deck build/mhd-maps build/test-core build/test-gateway
+test: build/boostdeck-collector build/shift-deck build/mhd-maps build/test-core build/test-gateway build/hud-boost
 	./build/test-core
 	./build/test-gateway
 	$(PYTHON) -B tests/test_transport.py
 	$(PYTHON) -B tests/test_drive_apps.py
+	$(PYTHON) -B tests/test_hud_boost.py

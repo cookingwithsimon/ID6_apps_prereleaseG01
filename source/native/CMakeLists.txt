@@ -89,3 +89,6 @@ id6_worker(engine-codes-qnx src/collector.c src/gauge_core.c)
 target_compile_definitions(engine-codes-qnx PRIVATE ENGINE_CODES_ONLY)
 
 id6_worker(gaugedeck-fileops fileops.c)
+
+# G01 head-up display: boost text and a bar picture over the cluster's guidance link (docs/RIC-G01.md).
+id6_worker(hud-boost-qnx src/hud_boost.c)

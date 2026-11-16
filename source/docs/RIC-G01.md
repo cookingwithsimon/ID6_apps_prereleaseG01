@@ -159,6 +159,10 @@ The intersection model (`0x000A` type 34) holds four doubles; maneuver 0 in the 
 
 So the high-guiding area can't serve as a needle gauge with these fields.
 
+## Step 11: more than one icon (parked, owner's go-ahead)
+
+`ric-tiles.py` cut one wide bar into 52 x 33 tiles (bitmaps `01000000` to `01000003`) and listed 1 to 4 of them in the road model's resource list. All frames were accepted, but only the one-tile case showed a picture. So the HUD shows one road icon of at most 52 x 33. That, plus the text line and the arrow icons, is all the picture space found so far without a junction view capture.
+
 ## Still open
 
 - ~~Whether the KOMBI shows guidance without an active factory route~~: yes (step 3).

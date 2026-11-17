@@ -349,16 +349,19 @@ static void gw_release(unsigned wait) {
     gw_retry_at = now_ms() + wait;
 }
 
-/* Returns 1 and the 16-bit value, 0 for a refusal or odd answer, -1 if the link failed. */
-static int read_did(unsigned did, unsigned *value) {
-    unsigned char req[11] = {0, 0, 0, 5, 0, 1, 0xF4, 0x12, 0x22, 0, 0};
+/* UDS 0x22 ReadDataByIdentifier to one ECU. Returns the number of data bytes (up to max) copied to out,
+ * 0 for a refusal or odd answer (*nrc holds the negative response code, or 0), -1 if the link failed. */
+static int read_did_raw(unsigned ecu, unsigned did, unsigned char *out, unsigned max, unsigned *nrc) {
+    unsigned char req[11] = {0, 0, 0, 5, 0, 1, 0xF4, 0, 0x22, 0, 0};
     unsigned char hdr[6], body[512];
     uint64_t deadline = now_ms() + GW_TIMEOUT_MS;
+    req[7] = (unsigned char)ecu;
     req[9] = (unsigned char)(did >> 8); req[10] = (unsigned char)did;
+    *nrc = 0;
     if (!transfer(gw, req, sizeof req, 1, deadline)) return -1;
     for (;;) {
         uint32_t len;
-        unsigned ctrl;
+        unsigned ctrl, n;
         if (!transfer(gw, hdr, 6, 0, deadline)) return -1;
         len = get_u32(hdr);
         ctrl = ((unsigned)hdr[4] << 8) | hdr[5];
@@ -368,16 +371,30 @@ static int read_did(unsigned did, unsigned *value) {
             if (!transfer(gw, alive, 8, 1, deadline)) return -1;
             continue;
         }
-        if (ctrl != 1 || len < 3 || body[0] != 0x12 || body[1] != 0xF4) continue;   /* ack echo */
+        if (ctrl != 1 || len < 3 || body[0] != ecu || body[1] != 0xF4) continue;   /* ack echo */
         if (body[2] == 0x7F && len >= 5) {
             if (body[4] == 0x78) continue;                   /* response pending */
+            *nrc = body[4];
             return 0;
         }
-        if (len == 7 && body[2] == 0x62 && body[3] == req[9] && body[4] == req[10]) {
-            *value = ((unsigned)body[5] << 8) | body[6];
-            return 1;
+        if (len > 5 && body[2] == 0x62 && body[3] == req[9] && body[4] == req[10]) {
+            n = len - 5;
+            if (n > max) n = max;
+            memcpy(out, body + 5, n);
+            return (int)n;
         }
     }
+}
+
+/* DME (0x12) 16-bit value: 1 and the value, 0 for a refusal or odd answer, -1 if the link failed. */
+static int read_did(unsigned did, unsigned *value) {
+    unsigned char b[2];
+    unsigned nrc;
+    int n = read_did_raw(0x12, did, b, 2, &nrc);
+    if (n < 0) return -1;
+    if (n != 2) return 0;
+    *value = ((unsigned)b[0] << 8) | b[1];
+    return 1;
 }
 
 static int gw_ready(void) {
@@ -445,6 +462,49 @@ static int demo_boost(uint64_t t) {
     return v / 10 - 50;                                       /* constant divisor */
 }
 
+/* --watch-mode: no HUD output. Reads the drive mode from the body controller (BDC, 0x40), DID D611,
+ * which strulock/m550-analyzer documents for the G30 (1 SPORT, 2 SPORT+ ("Sport Expert"), 3 SPORT Individual,
+ * 4 COMFORT, ...). Prints each change, so the values can be checked on this car before anything depends on them. */
+static const char *mode_name(unsigned v) {
+    switch (v) {
+    case 1: return "SPORT?";
+    case 2: return "SPORT+?";
+    case 3: return "SPORT Individual?";
+    case 4: return "COMFORT?";
+    default: return "?";
+    }
+}
+
+static int watch_mode(void) {
+    unsigned char b[8];
+    char shown[64] = "", now[64];
+    unsigned nrc, i;
+    printf("Watching the drive mode (BDC 0x40, DID D611), read-only. Switch modes now; Ctrl+C to stop.\n");
+    while (running && (!stop_at || now_ms() < stop_at)) {
+        uint64_t t0 = now_ms();
+        int n;
+        if (!gw_ready()) { pause_ms(300); continue; }
+        n = read_did_raw(0x40, 0xD611, b, sizeof b, &nrc);
+        if (n < 0) { printf("Gateway read failed, reconnecting in 3 s\n"); gw_release(GW_RETRY_MS); continue; }
+        gw_maybe_yield();
+        if (n == 0 && nrc) snprintf(now, sizeof now, "refused, code 0x%02X", nrc);
+        else if (n == 0) snprintf(now, sizeof now, "no answer");
+        else {
+            int k = snprintf(now, sizeof now, "raw");
+            for (i = 0; i < (unsigned)n && k < (int)sizeof now - 4; ++i) k += snprintf(now + k, sizeof now - k, " %02X", b[i]);
+            snprintf(now + k, sizeof now - k, "  %s", mode_name(b[0]));
+        }
+        if (strcmp(now, shown)) { printf("drive mode: %s\n", now); strcpy(shown, now); }
+        {
+            uint64_t spent = now_ms() - t0;
+            if (spent < 500) pause_ms((unsigned)(500 - spent));
+        }
+    }
+    release_gateway(&gw, &gw_lock);
+    printf("Done.\n");
+    return 0;
+}
+
 /* ---------- setup ---------- */
 
 static int valid_ip(const char *s) {
@@ -498,13 +558,14 @@ static unsigned number(const char *s, unsigned lo, unsigned hi) {
 }
 
 static void usage(void) {
-    fputs("usage: hud-boost-qnx [--demo] [--seconds N] [--gateway IP] [--start 1|2] [--max PSI]\n"
+    fputs("usage: hud-boost-qnx [--demo | --watch-mode] [--seconds N] [--gateway IP] [--start 1|2] [--max PSI]\n"
           "  --demo        made-up boost, no gateway reads\n"
           "  --seconds N   stop after N seconds (default 120, 0 = until Ctrl+C)\n"
           "  --gateway IP  diagnostic gateway (default: gateway-ip.txt next to this program, or in\n"
           "                an app folder under " PLUGINS_DIR ")\n"
           "  --start 1|2   which of the two step-12 start sequences to use (default 2)\n"
           "  --max PSI     boost that fills the bar (default 20)\n"
+          "  --watch-mode  no HUD: print the drive mode from the body controller (BDC DID D611) as it changes\n"
           "Run only parked with no factory nav route. Ctrl+C sends the factory clear and stops.\n", stderr);
     exit(2);
 }
@@ -512,7 +573,7 @@ static void usage(void) {
 int main(int argc, char **argv) {
     const char *kombi_ip = KOMBI_IP;
     unsigned kombi_port = KOMBI_PORT, seconds = 120, max_tenths = 200;
-    int demo = 0, variant = 2, i, shown_cols = -1;
+    int demo = 0, variant = 2, i, shown_cols = -1, watch = 0;
     char shown[48] = "";
     int last_tenths = 0;
     uint64_t start, end, last_sent = 0, last_print = 0, last_ok_at = 0;
@@ -520,6 +581,7 @@ int main(int argc, char **argv) {
 
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--demo")) demo = 1;
+        else if (!strcmp(argv[i], "--watch-mode")) watch = 1;
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = number(argv[++i], 0, 86400);
         else if (!strcmp(argv[i], "--gateway") && i + 1 < argc) gw_ip = argv[++i];
         else if (!strcmp(argv[i], "--gateway-port") && i + 1 < argc) gw_port = number(argv[++i], 1, 65535);
@@ -544,6 +606,12 @@ int main(int argc, char **argv) {
     sigaction(SIGHUP, &sa, 0);
     signal(SIGPIPE, SIG_IGN);
 
+    if (watch) {
+        if (demo) usage();
+        stop_at = seconds ? now_ms() + (uint64_t)seconds * 1000u : 0;
+        printf("Gateway %s:%u\n", gw_ip, gw_port);
+        return watch_mode();
+    }
     printf("HUD boost: %s, cluster %s:%u, start %d, bar full at %u psi, %s\n",
            demo ? "demo values" : "live", kombi_ip, kombi_port, variant, max_tenths / 10,
            seconds ? "time limit set" : "until Ctrl+C");

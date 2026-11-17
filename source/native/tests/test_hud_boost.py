@@ -72,6 +72,11 @@ def gateway(srv, reads):
                 conn.sendall(struct.pack(">IH", 2, 0x12) + b"\0\0")                      # alive check
             if len(reads) == 3:
                 conn.sendall(struct.pack(">IH", 5, 1) + bytes([0x12, 0xF4, 0x7F, 0x22, 0x78]))   # pending
+            if body[1] == 0x40:                                                         # BDC drive mode
+                mode = (4, 1, 2, 3)[(len(reads) // 2) % 4]
+                reply = bytes([0x40, 0xF4, 0x62, body[3], body[4], mode])
+                conn.sendall(struct.pack(">IH", len(reply), 1) + reply)
+                continue
             value = {0x4201: AMBIENT, 0x4205: BOOST}[(body[3] << 8) | body[4]]
             reply = bytes([0x12, 0xF4, 0x62, body[3], body[4], value >> 8, value & 0xFF])
             conn.sendall(struct.pack(">IH", len(reply), 1) + reply)
@@ -156,6 +161,16 @@ class HudBoostTest(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertEqual(reads, [])
         self.assertEqual([f[1] for f in frames][6:13], [3, 0xE, 0xA, 0xA, 0xC, 4, 9])
+
+    def test_watch_mode(self):
+        out, frames, reads = self.run_worker("--watch-mode", "--seconds", "5")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(frames, [])                     # nothing sent to the cluster
+        for body in reads:
+            self.assertEqual(body[:5], b"\xf4\x40\x22\xd6\x11")
+        lines = [l for l in out.stdout.splitlines() if l.startswith("drive mode:")]
+        self.assertEqual(lines[:4], ["drive mode: raw 04  COMFORT?", "drive mode: raw 01  SPORT?",
+                                     "drive mode: raw 02  SPORT+?", "drive mode: raw 03  SPORT Individual?"])
 
 
 if __name__ == "__main__":

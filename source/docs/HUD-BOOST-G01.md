@@ -34,6 +34,13 @@ It takes the loopback lease in `diagnostic_lease.h` before using the gateway, ke
 while no other app is waiting, and hands it over (closes it) when another app asks. While another app
 has the gateway it keeps showing the last reading for up to a second.
 
+## Drive-mode check
+
+`--watch-mode` sends nothing to the cluster. It reads DID D611 from the body controller (BDC, 0x40)
+every 500 ms and prints each change. strulock/m550-analyzer documents that DID on a G30 as the current
+drive mode (1 SPORT, 2 SPORT+, 3 SPORT Individual, 4 COMFORT). If it holds on the G01, it can start
+and stop the display in the sport modes.
+
 ## Build
 
 With the bmw-tools SDK, as for the other workers: the `hud-boost-qnx` target in

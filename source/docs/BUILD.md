@@ -11,7 +11,7 @@ python3 tools/test_probe_signals.py
 
 This fork builds with the MIT [bmw-tools](https://github.com/agent00jackson/bmw-tools) LLVM SDK for QNX 6.5 ARMv7 (clang and lld). `native/build.sh` still calls `qcc` from a QNX SDP install. Use the CMake build below.
 
-The SDK libc import list omits `getppid`, `lstat`, and `rmdir`. CMake generates a link-only `libc.so.3` with those symbols added and the same SONAME, so the head-unit binary imports them from the car's libc. Do not copy that generated stub onto the car. Do not copy the SDK's `usr/lib/*.so` stubs onto the car either. They are trap libraries for the linker.
+The SDK libc import list omits `getppid`, `lstat`, and `rmdir`, and, for the MOST fallback, `alarm`, `sigprocmask`, `vfprintf`, `pthread_condattr_init`, `pthread_condattr_setclock`, and `pthread_condattr_destroy`. CMake generates a link-only `libc.so.3` with those symbols added and the same SONAME, so the head-unit binary imports them from the car's libc. Do not copy that generated stub onto the car. Do not copy the SDK's `usr/lib/*.so` stubs onto the car either. They are trap libraries for the linker.
 
 1. Install the bmw-tools QNX SDK and note `share/cmake/QnxSdk/toolchain.cmake`.
 
@@ -24,6 +24,8 @@ ssh root@HEAD_IP 'cat /opt/hmi/ID5/lib/libCoreFramework.A.so' > native/framework
 shasum -a 256 native/frameworks/*.so
 ```
 
+On a split-node unit (`uname -a` reports `hu-jacinto`), `/opt/hmi/ID5/lib` is empty on the SSH node; read the libraries over Qnet under `/net/hu-omap/fs/sda0/...` instead (see [Split-node units](PORTING.md#split-node-units)).
+
 3. Configure and build on the Linux filesystem. `RHMI_LIBDIR` must be the directory from the step above when the binaries are meant for the car. Put the build directory on the Linux filesystem, not under a Windows mount.
 
 ```sh
@@ -35,6 +37,8 @@ cmake --build "$HOME/id6-build"
 ```
 
 On a host where `cc` is not installed, run the tests with `make -C native CC=gcc test`.
+
+Every worker includes the [MOST fallback](MOST.md). It opens the DSI library at run time, so no private library is needed to build it.
 
 The XML already in `native/plugin` is the 1440×540 layout. Do not run `native/tools/make_bars.py` or `native/tools/make_drive_apps.py` over those files. The image archives stay as they are; the HMI scales them to the width and height in the XML. Place `gateway-ip.txt` in each installed app directory, containing one IPv4 address and nothing else.
 

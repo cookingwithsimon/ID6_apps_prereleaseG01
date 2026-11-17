@@ -60,6 +60,11 @@ add_custom_target(libc_plus DEPENDS "${LIBC_PLUS}")
 string(REPLACE "${SDK_LIBC}" "${LIBC_PLUS}" CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES}")
 string(REPLACE "${SDK_LIBC}" "${LIBC_PLUS}" CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES}")
 
+# Every diagnostic worker carries the HSFZ-then-MOST link (docs/MOST.md). The DSI
+# library is opened with dlopen at run time, so nothing private is linked.
+set(DIAG_LINK_SOURCES src/diag_link.c src/most/most_link.c src/most/dsi_client.c
+    src/most/most_proto.c src/most/dsi_bind.c)
+
 function(id6_worker name)
   add_executable(${name} ${ARGN})
   target_include_directories(${name} PRIVATE src)
@@ -70,22 +75,22 @@ endfunction()
 
 id6_plugin(BoostDeck libBoostDeck.so src/plugin.cpp src/gauge_core.c)
 target_compile_definitions(BoostDeck PRIVATE PERF_LAB)
-id6_worker(boostdeck-collector-qnx src/collector.c src/gauge_core.c)
+id6_worker(boostdeck-collector-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES})
 target_compile_definitions(boostdeck-collector-qnx PRIVATE NATIVE_FAST PERF_LAB)
 
 id6_plugin(ShiftDeck libShiftDeck.so src/shift_deck.cpp src/gauge_core.c)
 target_compile_definitions(ShiftDeck PRIVATE PERF_LAB NATIVE_SHIFT_SMOOTH)
-id6_worker(shift-deck-qnx src/collector.c src/gauge_core.c)
+id6_worker(shift-deck-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES})
 target_compile_definitions(shift-deck-qnx PRIVATE NATIVE_FAST SHIFT_DECK_ONLY)
 
 id6_plugin(MhdMaps libMhdMaps.so src/mhd_maps.cpp)
 target_compile_definitions(MhdMaps PRIVATE PERF_LAB)
-id6_worker(mhd-maps-qnx src/collector.c src/gauge_core.c)
+id6_worker(mhd-maps-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES})
 target_compile_definitions(mhd-maps-qnx PRIVATE MHD_MAPS_ONLY)
 
 id6_plugin(EngineCodes libEngineCodes.so src/engine_codes.cpp src/gauge_core.c)
 target_compile_definitions(EngineCodes PRIVATE PERF_LAB)
-id6_worker(engine-codes-qnx src/collector.c src/gauge_core.c)
+id6_worker(engine-codes-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES})
 target_compile_definitions(engine-codes-qnx PRIVATE ENGINE_CODES_ONLY)
 
 id6_worker(gaugedeck-fileops fileops.c)

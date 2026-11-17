@@ -28,7 +28,9 @@ def main():
     clang, readelf, ld, libc, output, assembly = sys.argv[1:]
     symbols = dyn_symbols(readelf, libc)
     names = {name for name, _, _ in symbols}
-    for extra in ("getppid", "lstat", "rmdir"):
+    # QNX 6.5 libc exports these; the MOST fallback (diag_link.c, most/) needs the last six.
+    for extra in ("getppid", "lstat", "rmdir", "alarm", "sigprocmask", "vfprintf",
+                  "pthread_condattr_init", "pthread_condattr_setclock", "pthread_condattr_destroy"):
         if extra not in names:
             symbols.append((extra, "FUNC", 0))
     lines = [

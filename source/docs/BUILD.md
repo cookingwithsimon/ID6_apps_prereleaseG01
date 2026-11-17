@@ -42,6 +42,8 @@ Every worker includes the [MOST fallback](MOST.md). It opens the DSI library at 
 
 The XML already in `native/plugin` is the 1440×540 layout. Do not run `native/tools/make_bars.py` or `native/tools/make_drive_apps.py` over those files. The image archives stay as they are; the HMI scales them to the width and height in the XML. Place `gateway-ip.txt` in each installed app directory, containing one IPv4 address and nothing else.
 
+The MHD+ Suite Exhaust Flap page runs `MhdMaps/exhaust-flap-worker-qnx`, the prebuilt HSFZ worker from upstream PR #29. Its source is not in the repository, so CMake does not build it; copy it from upstream `packages/dashboard.zip`. This fork passes it the address from `MhdMaps/gateway-ip.txt`. The packaged XML and matching image archives must be deployed together.
+
 ## New firmware
 
 Use the [unlisted firmware runbook](../../AgentReadMe.md#bring-up-an-unlisted-firmware) and [read-only capture tool](../tools/capture_headunit.py) to collect the platform, display, and framework evidence before building a candidate profile.

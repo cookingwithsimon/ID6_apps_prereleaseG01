@@ -31,6 +31,9 @@ build/mhd-maps: $(WORKER) | build
 build/engine-codes: $(WORKER) | build
 	$(HOST_LINK) -DENGINE_CODES_ONLY $(filter %.c,$^) -lm -o $@
 
+build/hud-boost: src/hud_boost.c src/hud_boost_frames.h src/diagnostic_lease.h | build
+	$(CC) $(CFLAGS) -Isrc src/hud_boost.c -o $@
+
 build/test-core: tests/test_core.c $(CORE) $(HEADERS) | build
 	$(CC) $(CFLAGS) -Isrc $(filter %.c,$^) -lm -o $@
 
@@ -43,7 +46,7 @@ build/test-most: tests/test_most.c $(MOST) $(FAKE_DSI) $(MOST_HEADERS) | build
 build/test-diag-link: tests/test_diag_link.c $(CORE_LINK) $(MOST) tests/fake_most_env.c $(FAKE_DSI) $(HEADERS) $(MOST_HEADERS) | build
 	$(HOST_LINK) $(filter %.c,$^) -lm -o $@
 
-test: build/boostdeck-collector build/shift-deck build/mhd-maps build/engine-codes build/test-core build/test-most build/test-diag-link build/test-gateway
+test: build/boostdeck-collector build/shift-deck build/mhd-maps build/engine-codes build/test-core build/test-most build/test-diag-link build/test-gateway build/hud-boost
 	./build/test-core
 	./build/test-gateway
 	./build/test-most
@@ -51,3 +54,4 @@ test: build/boostdeck-collector build/shift-deck build/mhd-maps build/engine-cod
 	$(PYTHON) -B tests/test_drive_apps.py
 	$(PYTHON) -B tests/test_oneshot_most.py
 	$(PYTHON) -B tests/test_transport.py
+	$(PYTHON) -B tests/test_hud_boost.py

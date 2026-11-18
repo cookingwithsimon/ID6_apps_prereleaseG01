@@ -465,14 +465,46 @@ static int demo_boost(uint64_t t) {
 /* --watch-mode: no HUD output. Reads the drive mode from the body controller (BDC, 0x40), DID D611,
  * which strulock/m550-analyzer documents for the G30 (1 SPORT, 2 SPORT+ ("Sport Expert"), 3 SPORT Individual,
  * 4 COMFORT, ...). Prints each change, so the values can be checked on this car before anything depends on them. */
+/* BDC DID D611 values. 1, 2, 3, 4, 7, 9 and 10 were seen on Simon's G01 on 2026-11-18 while he switched
+ * modes; 5, 6 and 8 are from the G30 notes only. */
 static const char *mode_name(unsigned v) {
     switch (v) {
-    case 1: return "SPORT?";
-    case 2: return "SPORT+?";
-    case 3: return "SPORT Individual?";
-    case 4: return "COMFORT?";
+    case 0: return "starting up";
+    case 1: return "SPORT";
+    case 2: return "SPORT+";
+    case 3: return "SPORT Individual";
+    case 4: return "COMFORT";
+    case 5: return "COMFORT+?";
+    case 6: return "COMFORT Individual?";
+    case 7: return "ECO PRO";
+    case 8: return "ECO PRO+?";
+    case 9: return "ECO PRO Individual";
+    case 10: return "ADAPTIVE";
+    case 63: return "no value";
     default: return "?";
     }
+}
+
+static int is_sport(unsigned v) { return v == 1 || v == 2 || v == 3; }
+
+static int drive_mode = -1;             /* last good D611 value, -1 = not known yet */
+static uint64_t mode_due;
+
+/* --auto: read the drive mode every 500 ms. Keeps the last good value through refusals and the
+ * start-up / no-value codes. Returns -1 if the gateway link failed. */
+static int poll_drive_mode(void) {
+    unsigned char b[4];
+    unsigned nrc;
+    int n;
+    if (now_ms() < mode_due || !gw_ready()) return 0;
+    mode_due = now_ms() + 500;
+    n = read_did_raw(0x40, 0xD611, b, sizeof b, &nrc);
+    if (n < 0) { printf("Gateway read failed, reconnecting in 3 s\n"); gw_release(GW_RETRY_MS); return -1; }
+    if (n >= 1 && b[0] != 0 && b[0] != 63 && (int)b[0] != drive_mode) {
+        drive_mode = b[0];
+        printf("Drive mode: %s (%u)\n", mode_name(b[0]), (unsigned)b[0]);
+    }
+    return 0;
 }
 
 static int watch_mode(void) {
@@ -558,7 +590,7 @@ static unsigned number(const char *s, unsigned lo, unsigned hi) {
 }
 
 static void usage(void) {
-    fputs("usage: hud-boost-qnx [--demo | --watch-mode] [--seconds N] [--gateway IP] [--start 1|2] [--max PSI]\n"
+    fputs("usage: hud-boost-qnx [--demo | --watch-mode | --auto] [--seconds N] [--gateway IP] [--start 1|2] [--max PSI]\n"
           "  --demo        made-up boost, no gateway reads\n"
           "  --seconds N   stop after N seconds (default 120, 0 = until Ctrl+C)\n"
           "  --gateway IP  diagnostic gateway (default: gateway-ip.txt next to this program, or in\n"
@@ -566,6 +598,8 @@ static void usage(void) {
           "  --start 1|2   which of the two step-12 start sequences to use (default 2)\n"
           "  --max PSI     boost that fills the bar (default 20)\n"
           "  --watch-mode  no HUD: print the drive mode from the body controller (BDC DID D611) as it changes\n"
+          "  --auto        show boost only in SPORT, SPORT+ and SPORT Individual; clear the HUD in other\n"
+          "                modes (runs until stopped unless --seconds is given)\n"
           "Run only parked with no factory nav route. Ctrl+C sends the factory clear and stops.\n", stderr);
     exit(2);
 }
@@ -573,7 +607,7 @@ static void usage(void) {
 int main(int argc, char **argv) {
     const char *kombi_ip = KOMBI_IP;
     unsigned kombi_port = KOMBI_PORT, seconds = 120, max_tenths = 200;
-    int demo = 0, variant = 2, i, shown_cols = -1, watch = 0;
+    int demo = 0, variant = 2, i, shown_cols = -1, watch = 0, auto_mode = 0, seconds_set = 0;
     char shown[48] = "";
     int last_tenths = 0;
     uint64_t start, end, last_sent = 0, last_print = 0, last_ok_at = 0;
@@ -582,7 +616,8 @@ int main(int argc, char **argv) {
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--demo")) demo = 1;
         else if (!strcmp(argv[i], "--watch-mode")) watch = 1;
-        else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = number(argv[++i], 0, 86400);
+        else if (!strcmp(argv[i], "--auto")) auto_mode = 1;
+        else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) { seconds = number(argv[++i], 0, 86400); seconds_set = 1; }
         else if (!strcmp(argv[i], "--gateway") && i + 1 < argc) gw_ip = argv[++i];
         else if (!strcmp(argv[i], "--gateway-port") && i + 1 < argc) gw_port = number(argv[++i], 1, 65535);
         else if (!strcmp(argv[i], "--kombi") && i + 1 < argc) kombi_ip = argv[++i];
@@ -591,10 +626,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--max") && i + 1 < argc) max_tenths = number(argv[++i], 5, 60) * 10;
         else usage();
     }
+    if (auto_mode && watch) usage();
+    if (auto_mode && !seconds_set) seconds = 0;          /* --auto runs until stopped */
     if (gw_ip && !valid_ip(gw_ip)) { fprintf(stderr, "Not an IPv4 address: %s\n", gw_ip); return 2; }
     if (!valid_ip(kombi_ip)) { fprintf(stderr, "Not an IPv4 address: %s\n", kombi_ip); return 2; }
-    if (!demo && !gw_ip) gw_ip = find_gateway_ip(argv[0]);
-    if (!demo && !gw_ip) {
+    if ((!demo || auto_mode) && !gw_ip) gw_ip = find_gateway_ip(argv[0]);
+    if ((!demo || auto_mode) && !gw_ip) {
         fprintf(stderr, "No gateway address: pass --gateway IP, or put gateway-ip.txt next to this program.\n");
         return 2;
     }
@@ -615,7 +652,8 @@ int main(int argc, char **argv) {
     printf("HUD boost: %s, cluster %s:%u, start %d, bar full at %u psi, %s\n",
            demo ? "demo values" : "live", kombi_ip, kombi_port, variant, max_tenths / 10,
            seconds ? "time limit set" : "until Ctrl+C");
-    if (!demo) printf("Gateway %s:%u\n", gw_ip, gw_port);
+    if (gw_ip) printf("Gateway %s:%u\n", gw_ip, gw_port);
+    if (auto_mode) printf("Automatic: boost on the HUD only in SPORT, SPORT+ and SPORT Individual.\n");
     start = now_ms();
     end = stop_at = seconds ? start + (uint64_t)seconds * 1000u : 0;
 
@@ -625,6 +663,19 @@ int main(int argc, char **argv) {
         unsigned cols = 0;
         char line[48], num[12];
 
+        if (auto_mode) {
+            poll_drive_mode();
+            if (drive_mode < 0 || !is_sport((unsigned)drive_mode)) {
+                if (kombi >= 0) {
+                    factory_clear();             /* left the sport modes: hand the HUD back */
+                    close(kombi);
+                    kombi = -1;
+                    printf("HUD cleared (not a sport mode).\n");
+                }
+                pause_ms(TICK_MS);
+                continue;
+            }
+        }
         if (kombi < 0) {
             kombi = connect_tcp(kombi_ip, kombi_port);
             if (kombi < 0) {
@@ -644,7 +695,7 @@ int main(int argc, char **argv) {
                 pause_ms(KOMBI_RETRY_MS);
                 continue;
             }
-            printf("HUD started. Ctrl+C to stop.\n");
+            printf(auto_mode ? "HUD started (sport mode).\n" : "HUD started. Ctrl+C to stop.\n");
             shown_cols = -1;
             shown[0] = 0;
         }

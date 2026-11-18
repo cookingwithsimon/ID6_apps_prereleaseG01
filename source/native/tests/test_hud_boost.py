@@ -6,12 +6,15 @@ import socket
 import struct
 import subprocess
 import threading
+import time
 import unittest
 from pathlib import Path
 
 BIN = str(Path(__file__).resolve().parents[1] / "build/hud-boost")
 AMBIENT = 0x6589            # DID 4201, 101.54 kPa * 256
 BOOST = 180 * 128           # DID 4205, 180 kPa * 128 absolute -> 11.4 psi gauge
+# drive mode the stand-in body controller reports: (seconds since connect, D611 value)
+MODES = [(1, 4), (2, 1), (3, 2), (4, 3)]
 CLEAR_FIRST = bytes.fromhex("000000c821000000210000002a0000000221000000210f000000ffffffff07")
 
 
@@ -60,6 +63,7 @@ def gateway(srv, reads):
         conn, _ = srv.accept()
     except OSError:
         return
+    started = time.monotonic()
     try:
         while True:
             length, ctrl = struct.unpack(">IH", exact(conn, 6))
@@ -73,7 +77,8 @@ def gateway(srv, reads):
             if len(reads) == 3:
                 conn.sendall(struct.pack(">IH", 5, 1) + bytes([0x12, 0xF4, 0x7F, 0x22, 0x78]))   # pending
             if body[1] == 0x40:                                                         # BDC drive mode
-                mode = (4, 1, 2, 3)[(len(reads) // 2) % 4]
+                elapsed = time.monotonic() - started
+                mode = next((m for until, m in MODES if elapsed < until), MODES[-1][1])
                 reply = bytes([0x40, 0xF4, 0x62, body[3], body[4], mode])
                 conn.sendall(struct.pack(">IH", len(reply), 1) + reply)
                 continue
@@ -169,8 +174,30 @@ class HudBoostTest(unittest.TestCase):
         for body in reads:
             self.assertEqual(body[:5], b"\xf4\x40\x22\xd6\x11")
         lines = [l for l in out.stdout.splitlines() if l.startswith("drive mode:")]
-        self.assertEqual(lines[:4], ["drive mode: raw 04  COMFORT?", "drive mode: raw 01  SPORT?",
-                                     "drive mode: raw 02  SPORT+?", "drive mode: raw 03  SPORT Individual?"])
+        self.assertEqual(lines[:4], ["drive mode: raw 04  COMFORT", "drive mode: raw 01  SPORT",
+                                     "drive mode: raw 02  SPORT+", "drive mode: raw 03  SPORT Individual"])
+
+
+    def test_auto_follows_sport_modes(self):
+        global MODES
+        saved = MODES
+        MODES = [(1.5, 4), (4.5, 1), (99, 4)]      # COMFORT, then SPORT for 3 s, then COMFORT
+        try:
+            out, frames, reads = self.run_worker("--auto", "--seconds", "7")
+        finally:
+            MODES = saved
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("Drive mode: SPORT (1)", out.stdout)
+        self.assertIn("HUD cleared (not a sport mode).", out.stdout)
+        methods = [f[1] for f in frames]
+        clear = [0x0009, 0x0009, 0x0009, 0x000C, 0x0004, 0x0009]
+        # nothing before SPORT; then clear + start + updates; then the clear when COMFORT returns, and nothing after
+        self.assertEqual(methods[:6], clear)
+        self.assertEqual(methods[-6:], clear)
+        self.assertIn(3, methods)
+        texts = [text_of(f[4]) for f in frames if f[1] == 3 and f[4][4:9] == bytes.fromhex("0300000003")]
+        self.assertIn("BOOST 11.4 psi", texts)
+        self.assertTrue(any(body[1] == 0x40 for body in reads))
 
 
 if __name__ == "__main__":

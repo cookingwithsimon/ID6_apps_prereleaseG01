@@ -34,12 +34,16 @@ It takes the loopback lease in `diagnostic_lease.h` before using the gateway, ke
 while no other app is waiting, and hands it over (closes it) when another app asks. While another app
 has the gateway it keeps showing the last reading for up to a second.
 
-## Drive-mode check
+## Drive mode
 
-`--watch-mode` sends nothing to the cluster. It reads DID D611 from the body controller (BDC, 0x40)
-every 500 ms and prints each change. strulock/m550-analyzer documents that DID on a G30 as the current
-drive mode (1 SPORT, 2 SPORT+, 3 SPORT Individual, 4 COMFORT). If it holds on the G01, it can start
-and stop the display in the sport modes.
+The body controller (BDC, 0x40) reports the drive mode in DID D611. On Simon's G01 (2026-11-18) it
+read 1 SPORT, 2 SPORT+, 3 SPORT Individual, 4 COMFORT, 7 ECO PRO, 9 ECO PRO Individual and
+10 ADAPTIVE as he switched modes. These match strulock/m550-analyzer's G30 notes, which also list
+5 and 6 (COMFORT+ / Individual) and 8 (ECO PRO+). 0 shows while starting up and 63 means no value.
+
+- `--watch-mode` sends nothing to the cluster and prints each change.
+- `--auto` shows boost only in SPORT, SPORT+ and SPORT Individual. In any other mode it sends the
+  factory clear once and then leaves the HUD alone. It ignores 0 and 63 and keeps the last good mode.
 
 ## Build
 
@@ -51,8 +55,10 @@ point and calls no integer-division helper.
 
 - Host tests pass against a stand-in cluster and gateway, and the frames match the Python test
   scripts byte for byte.
-- Not yet run on the car. The first run is by hand over SSH from `/dev/shmem` (RAM, gone after a
+- `--watch-mode` ran on the car on 2026-11-18 (drive-mode values above). The HUD display itself has
+  not been reported from the car yet. The first run is by hand over SSH from `/dev/shmem` (RAM, gone after a
   restart), parked, with no nav route, after `ric-min.py` confirms the start works without a captured
   route.
 - It does not yet stand aside when the factory nav starts guiding. Until it does, it must not run
-  while driving with a route. That, and starting it from iDrive, come next.
+  while driving with a route, in `--auto` too. That, and starting it automatically with the head unit,
+  come next.

@@ -11,15 +11,21 @@
  * ambient pressure and 4205 boost pressure only, BoostDeck's scaling). It shares the gateway with
  * BoostDeck and the other apps through the loopback lease in diagnostic_lease.h.
  *
- * First version: started by hand over SSH, parked, with NO factory nav route running. It does not
- * yet notice factory guidance starting, so it must not be left running while driving with a route.
- * Ctrl+C, SIGTERM, SIGHUP (SSH closed) and the time limit all end it with the factory clear.
+ * It watches the factory nav's guidance markers in the system log (sloginfo) and leaves the HUD
+ * to the factory nav while it guides: the factory clear, and nothing more until 3 s after guidance
+ * ends. --auto also follows the drive mode (BDC DID D611) and shows boost only in the sport modes.
+ * Started by hand over SSH for now. Ctrl+C, SIGTERM, SIGHUP (SSH closed) and the time limit all end
+ * it with the factory clear.
  *
- *   hud-boost-qnx [--demo] [--seconds N] [--gateway IP] [--start 1|2] [--max PSI]
+ *   hud-boost-qnx [--demo | --auto | --watch-mode | --watch-nav] [--seconds N] [--gateway IP] ...
  *
  * No floating point and no run-time integer division (only shifts, products and constant
  * divisors), so it builds with the bmw-tools QNX SDK and runs on the NBT Evo's QNX 6.5. */
+#ifdef __linux__
+#define _XOPEN_SOURCE 700            /* host test build: posix_openpt for the terminal path */
+#else
 #define _POSIX_C_SOURCE 200809L
+#endif
 #include "diagnostic_lease.h"
 #include "hud_boost_frames.h"
 #include <arpa/inet.h>
@@ -30,11 +36,14 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -537,6 +546,243 @@ static int watch_mode(void) {
     return 0;
 }
 
+/* ---------- factory nav guidance (sloginfo) ----------
+ *
+ * The factory nav logs its guidance to the system log. On Simon's car (2026-11-18) a route start
+ * showed "MARKER RouteGuidanceStarted", "GuidanceNewRoute ...", "attach TDA/BJV on guidance
+ * viewer:GUIDING LABELS ..." and "MapViewer: API call --> enable route: routeId N"; cancelling it
+ * showed "attach EMPTY on guidance viewer:GUIDING LABELS for man id:0" and "disable route: routeId N"
+ * (reroutes enable a new id and disable the old one). This runs `sloginfo -w`, which first replays
+ * the log kept since start-up and then waits for new lines, and keeps two things from it: whether
+ * guidance labels are attached, and which route ids the map has enabled. The nav counts as guiding
+ * while either says so. sloginfo's output goes through a pseudo-terminal when one is free, so that
+ * its lines arrive at once and not in 4 KB lumps as they would through a pipe. Read-only: it only
+ * reads the log. */
+#define NAV_MAX_ROUTES 16
+enum { NAV_SETTLE_MS = 1000 /* replay read before trusting the state */, NAV_RETRY_MS = 5000,
+       NAV_RESUME_MS = 3000 /* quiet time after guidance ends before the HUD is used again */ };
+
+static const char *nav_prog = "sloginfo";
+static int nav_fd = -1, nav_tty, nav_settled, nav_said_down, nav_verbose;
+static pid_t nav_pid = -1;
+static uint64_t nav_spawned_at, nav_retry_at, nav_ended_at;
+static int nav_labels, nav_overflow;
+static unsigned nav_routes[NAV_MAX_ROUTES], nav_nroutes;
+static char nav_buf[1024];
+static unsigned nav_len;
+
+static int nav_guiding(void) { return nav_labels || nav_nroutes || nav_overflow; }
+
+static void nav_reset(void) {
+    nav_labels = nav_overflow = 0;
+    nav_nroutes = 0;
+    nav_len = 0;
+    nav_settled = 0;
+}
+
+/* a free pseudo-terminal: the QNX 6.5 devc-pty names /dev/ptyXN + /dev/ttyXN, or /dev/ptmx on the
+ * host test build */
+static int open_pty(int *master, int *slave) {
+#ifdef __linux__
+    int m = posix_openpt(O_RDWR | O_NOCTTY);
+    const char *name;
+    if (m < 0) return -1;
+    if (grantpt(m) || unlockpt(m) || !(name = ptsname(m))) { close(m); return -1; }
+    *slave = open(name, O_RDWR | O_NOCTTY);
+    if (*slave < 0) { close(m); return -1; }
+    *master = m;
+    return 0;
+#else
+    static const char groups[] = "pqrs", digits[] = "0123456789abcdef";
+    char path[16];
+    unsigned g, d;
+    for (g = 0; groups[g]; ++g)
+        for (d = 0; digits[d]; ++d) {
+            int m;
+            snprintf(path, sizeof path, "/dev/pty%c%c", groups[g], digits[d]);
+            m = open(path, O_RDWR | O_NOCTTY);
+            if (m < 0) {
+                if (errno == ENOENT) break;          /* no more in this group */
+                continue;                            /* in use */
+            }
+            path[5] = 't';                           /* /dev/ttyXN */
+            *slave = open(path, O_RDWR | O_NOCTTY);
+            if (*slave >= 0) { *master = m; return 0; }
+            close(m);
+        }
+    return -1;
+#endif
+}
+
+static int nav_spawn(int out, int other) {
+    static const char *const dirs[] = {"/bin/", "/usr/bin/", "/sbin/", "/usr/sbin/"};
+    char *argv[3], path[96];
+    posix_spawn_file_actions_t fa;
+    int rc, fds[4], i;
+    extern char **environ;
+    argv[0] = (char *)nav_prog;
+    argv[1] = (char *)"-w";
+    argv[2] = 0;
+    fds[0] = kombi; fds[1] = gw; fds[2] = gw_lock; fds[3] = other;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_adddup2(&fa, out, 1);
+    if (out != 1) posix_spawn_file_actions_addclose(&fa, out);
+    for (i = 0; i < 4; ++i)                          /* our sockets stay ours */
+        if (fds[i] > 2 && fds[i] != out) posix_spawn_file_actions_addclose(&fa, fds[i]);
+    rc = posix_spawnp(&nav_pid, nav_prog, &fa, 0, argv, environ);
+    for (i = 0; rc && !strchr(nav_prog, '/') && i < 4; ++i) {
+        snprintf(path, sizeof path, "%s%s", dirs[i], nav_prog);
+        rc = posix_spawn(&nav_pid, path, &fa, 0, argv, environ);
+    }
+    posix_spawn_file_actions_destroy(&fa);
+    if (rc) nav_pid = -1;
+    return rc;
+}
+
+static void nav_stop(void) {
+    if (nav_fd >= 0) close(nav_fd);
+    nav_fd = -1;
+    if (nav_pid > 0) {
+        int st, i;
+        kill(nav_pid, SIGTERM);
+        for (i = 0; i < 50 && waitpid(nav_pid, &st, WNOHANG) == 0; ++i) poll(0, 0, 10);
+        if (i == 50) { kill(nav_pid, SIGKILL); waitpid(nav_pid, &st, 0); }
+    }
+    nav_pid = -1;
+}
+
+static void nav_start(void) {
+    int master = -1, slave = -1, p[2];
+    nav_reset();
+    nav_retry_at = now_ms() + NAV_RETRY_MS;
+    if (open_pty(&master, &slave) == 0) {
+        nav_tty = 1;                                 /* lines end "\r\n" there; both split lines */
+    } else if (pipe(p) == 0) {
+        master = p[0];
+        slave = p[1];
+        nav_tty = 0;
+    } else {
+        return;
+    }
+    fcntl(master, F_SETFD, FD_CLOEXEC);
+    if (nav_spawn(slave, master)) {
+        if (!nav_said_down) printf("Cannot start %s -w to watch the factory nav.\n", nav_prog);
+        nav_said_down = 1;
+        close(master);
+        close(slave);
+        return;
+    }
+    close(slave);
+    fcntl(master, F_SETFL, O_NONBLOCK);
+    nav_fd = master;
+    nav_spawned_at = now_ms();
+    if (nav_verbose) printf("Watching the factory nav through %s -w (%s).\n", nav_prog, nav_tty ? "terminal" : "pipe");
+}
+
+static unsigned route_id(const char *s) {
+    const char *p = strstr(s, "routeId ");
+    return p ? (unsigned)strtoul(p + 8, 0, 10) : 0;
+}
+
+/* one log line; returns 1 if it is a guidance marker we used */
+static int nav_line(const char *s) {
+    const char *m = strstr(s, "MARKER ");
+    const char *a;
+    unsigned id, i;
+    if (!m) return 0;
+    m += 7;
+    if (strstr(m, "RouteGuidanceStarted") || strstr(m, "GuidanceNewRoute") || strstr(m, "InitialGuidedRoute")) {
+        nav_labels = 1;
+        return 1;
+    }
+    if (!strncmp(m, "attach ", 7) && (a = strstr(m, " on guidance viewer:GUIDING LABELS")) != 0) {
+        if (a - m == 12 && !strncmp(m + 7, "EMPTY", 5)) {
+            nav_labels = 0;
+            if (nav_overflow) { nav_overflow = 0; nav_nroutes = 0; }
+        } else {
+            nav_labels = 1;
+        }
+        return 1;
+    }
+    if (strstr(m, "disable route:") && (id = route_id(m)) != 0) {
+        for (i = 0; i < nav_nroutes; ++i)
+            if (nav_routes[i] == id) { nav_routes[i] = nav_routes[--nav_nroutes]; break; }
+        return 1;
+    }
+    if (strstr(m, "enable route:") && (id = route_id(m)) != 0) {
+        for (i = 0; i < nav_nroutes && nav_routes[i] != id; ++i) {}
+        if (i == nav_nroutes) {
+            if (nav_nroutes < NAV_MAX_ROUTES) nav_routes[nav_nroutes++] = id;
+            else nav_overflow = 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/* Read what sloginfo has written. Returns 1 = guiding, 0 = not guiding, -1 = not known (no
+ * watcher, or still reading the replay). */
+static int nav_poll(void) {
+    uint64_t t = now_ms();
+    int was = nav_guiding();
+    if (nav_fd < 0) {
+        if (t >= nav_retry_at) nav_start();
+        if (nav_fd < 0) return -1;
+    }
+    for (;;) {
+        ssize_t n;
+        unsigned start = 0, i;
+        if (nav_len >= sizeof nav_buf - 1) nav_len = 0;     /* an over-long line: drop it */
+        n = read(nav_fd, nav_buf + nav_len, (sizeof nav_buf - 1) - (size_t)(nav_len & 1023));   /* & 1023: always nav_len here; keeps gcc's size check quiet */
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (!nav_settled && t - nav_spawned_at >= NAV_SETTLE_MS) {
+                nav_settled = 1;
+                nav_said_down = 0;
+                was = -1;
+            }
+            break;
+        }
+        if (n < 0 && errno == EINTR) break;
+        if (n <= 0) {                                /* sloginfo ended (EOF, or EIO on a terminal) */
+            printf("%s stopped; restarting it in %u s.\n", nav_prog, (unsigned)NAV_RETRY_MS / 1000);
+            nav_stop();
+            nav_reset();
+            nav_retry_at = t + NAV_RETRY_MS;
+            return -1;
+        }
+        nav_len += (unsigned)n;
+        for (i = 0; i < nav_len; ++i)
+            if (nav_buf[i] == '\n' || nav_buf[i] == '\r') {
+                nav_buf[i] = 0;
+                if ((nav_line(nav_buf + start) || strstr(nav_buf + start, "RouteGuidance")) && nav_verbose && nav_settled)
+                    printf("  log: %s\n", nav_buf + start);
+                start = i + 1;
+            }
+        memmove(nav_buf, nav_buf + start, nav_len - start);
+        nav_len -= start;
+    }
+    if (!nav_settled) return -1;
+    if (was != nav_guiding()) {
+        if (!nav_guiding() && was >= 0) nav_ended_at = t;
+        if (nav_verbose || was >= 0)
+            printf("Factory nav: %s\n", nav_guiding() ? "guiding" : "not guiding");
+    }
+    return nav_guiding();
+}
+
+static int watch_nav(void) {
+    nav_verbose = 1;
+    printf("Watching the factory nav guidance in the system log, read-only. Start and cancel a route now; Ctrl+C to stop.\n");
+    while (running && (!stop_at || now_ms() < stop_at)) {
+        nav_poll();
+        pause_ms(TICK_MS);
+    }
+    nav_stop();
+    printf("Done.\n");
+    return 0;
+}
+
 /* ---------- setup ---------- */
 
 static int valid_ip(const char *s) {
@@ -600,7 +846,10 @@ static void usage(void) {
           "  --watch-mode  no HUD: print the drive mode from the body controller (BDC DID D611) as it changes\n"
           "  --auto        show boost only in SPORT, SPORT+ and SPORT Individual; clear the HUD in other\n"
           "                modes (runs until stopped unless --seconds is given)\n"
-          "Run only parked with no factory nav route. Ctrl+C sends the factory clear and stops.\n", stderr);
+          "  --watch-nav   no HUD: print when the factory nav starts and stops guiding (from sloginfo)\n"
+          "  --no-nav-check  do not watch the factory nav (by default the HUD is left to it while it guides)\n"
+          "  --sloginfo P  the sloginfo program to run (default: sloginfo)\n"
+          "Ctrl+C sends the factory clear and stops.\n", stderr);
     exit(2);
 }
 
@@ -608,6 +857,7 @@ int main(int argc, char **argv) {
     const char *kombi_ip = KOMBI_IP;
     unsigned kombi_port = KOMBI_PORT, seconds = 120, max_tenths = 200;
     int demo = 0, variant = 2, i, shown_cols = -1, watch = 0, auto_mode = 0, seconds_set = 0;
+    int watch_nav_only = 0, nav_check = 1;
     char shown[48] = "";
     int last_tenths = 0;
     uint64_t start, end, last_sent = 0, last_print = 0, last_ok_at = 0;
@@ -617,6 +867,9 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--demo")) demo = 1;
         else if (!strcmp(argv[i], "--watch-mode")) watch = 1;
         else if (!strcmp(argv[i], "--auto")) auto_mode = 1;
+        else if (!strcmp(argv[i], "--watch-nav")) watch_nav_only = 1;
+        else if (!strcmp(argv[i], "--no-nav-check")) nav_check = 0;
+        else if (!strcmp(argv[i], "--sloginfo") && i + 1 < argc) nav_prog = argv[++i];
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) { seconds = number(argv[++i], 0, 86400); seconds_set = 1; }
         else if (!strcmp(argv[i], "--gateway") && i + 1 < argc) gw_ip = argv[++i];
         else if (!strcmp(argv[i], "--gateway-port") && i + 1 < argc) gw_port = number(argv[++i], 1, 65535);
@@ -626,7 +879,17 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--max") && i + 1 < argc) max_tenths = number(argv[++i], 5, 60) * 10;
         else usage();
     }
-    if (auto_mode && watch) usage();
+    if (auto_mode + watch + watch_nav_only > 1 || (watch_nav_only && demo)) usage();
+    if (watch_nav_only) {
+        setvbuf(stdout, 0, _IOLBF, 0);
+        memset(&sa, 0, sizeof sa);
+        sa.sa_handler = stop;
+        sigaction(SIGINT, &sa, 0);
+        sigaction(SIGTERM, &sa, 0);
+        sigaction(SIGHUP, &sa, 0);
+        stop_at = seconds_set && seconds ? now_ms() + (uint64_t)seconds * 1000u : 0;
+        return watch_nav();
+    }
     if (auto_mode && !seconds_set) seconds = 0;          /* --auto runs until stopped */
     if (gw_ip && !valid_ip(gw_ip)) { fprintf(stderr, "Not an IPv4 address: %s\n", gw_ip); return 2; }
     if (!valid_ip(kombi_ip)) { fprintf(stderr, "Not an IPv4 address: %s\n", kombi_ip); return 2; }
@@ -654,6 +917,8 @@ int main(int argc, char **argv) {
            seconds ? "time limit set" : "until Ctrl+C");
     if (gw_ip) printf("Gateway %s:%u\n", gw_ip, gw_port);
     if (auto_mode) printf("Automatic: boost on the HUD only in SPORT, SPORT+ and SPORT Individual.\n");
+    printf(nav_check ? "The HUD is left to the factory nav while it guides.\n"
+                     : "Not watching the factory nav (--no-nav-check): do not drive with a route.\n");
     start = now_ms();
     end = stop_at = seconds ? start + (uint64_t)seconds * 1000u : 0;
 
@@ -663,14 +928,22 @@ int main(int argc, char **argv) {
         unsigned cols = 0;
         char line[48], num[12];
 
-        if (auto_mode) {
-            poll_drive_mode();
-            if (drive_mode < 0 || !is_sport((unsigned)drive_mode)) {
+        {
+            const char *aside = 0;
+            int nav = nav_check ? nav_poll() : 0;
+            if (auto_mode) {
+                poll_drive_mode();
+                if (drive_mode < 0 || !is_sport((unsigned)drive_mode)) aside = "not a sport mode";
+            }
+            if (!aside && nav > 0) aside = "factory nav is guiding";
+            if (!aside && nav < 0) aside = "factory nav not known";
+            if (!aside && nav_check && nav_ended_at && t0 - nav_ended_at < NAV_RESUME_MS) aside = "factory nav just finished";
+            if (aside) {
                 if (kombi >= 0) {
-                    factory_clear();             /* left the sport modes: hand the HUD back */
+                    factory_clear();             /* hand the HUD back */
                     close(kombi);
                     kombi = -1;
-                    printf("HUD cleared (not a sport mode).\n");
+                    printf("HUD cleared (%s).\n", aside);
                 }
                 pause_ms(TICK_MS);
                 continue;
@@ -741,6 +1014,7 @@ int main(int argc, char **argv) {
         factory_clear();
         close(kombi);
     }
+    nav_stop();
     release_gateway(&gw, &gw_lock);
     printf("Done.\n");
     return 0;

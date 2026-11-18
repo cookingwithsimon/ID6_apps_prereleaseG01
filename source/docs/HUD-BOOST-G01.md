@@ -45,20 +45,39 @@ read 1 SPORT, 2 SPORT+, 3 SPORT Individual, 4 COMFORT, 7 ECO PRO, 9 ECO PRO Indi
 - `--auto` shows boost only in SPORT, SPORT+ and SPORT Individual. In any other mode it sends the
   factory clear once and then leaves the HUD alone. It ignores 0 and 63 and keeps the last good mode.
 
+## Factory nav
+
+The factory nav logs its guidance to the system log. On Simon's car (2026-11-18), starting a route
+logged `MARKER RouteGuidanceStarted`, `GuidanceNewRoute ...`, `attach TDA on guidance
+viewer:GUIDING LABELS` and `MapViewer: API call --> enable route: routeId N`. Cancelling it logged
+`attach EMPTY on guidance viewer:GUIDING LABELS for man id:0` and `disable route: routeId N`.
+Reroutes enable a new route id and disable the old one.
+
+Every HUD run starts `sloginfo -w` (read-only) and reads its output. It uses a free
+pseudo-terminal when there is one, so lines arrive at once rather than in 4 KB lumps through a pipe.
+`sloginfo -w` first replays the log kept since start-up, so a route that is already guiding is
+seen too. The nav counts as guiding while guidance labels are attached or the map has a route id
+enabled. While it guides, the worker sends the factory clear, closes its cluster connection and
+sends nothing until 3 s after guidance ends. Until the replay has been read (1 s), or if `sloginfo`
+can't be started, it shows nothing.
+
+- `--watch-nav` prints `Factory nav: guiding` / `not guiding` and the log lines behind it, with no HUD.
+- `--no-nav-check` turns the watch off. `--sloginfo PATH` picks another program (the host test uses
+  a stand-in).
+
 ## Build
 
 With the bmw-tools SDK, as for the other workers: the `hud-boost-qnx` target in
-`native/CMakeLists.txt`. It needs nothing beyond `libc.so.3` and `libsocket.so.3`, uses no floating
-point and calls no integer-division helper.
+`native/CMakeLists.txt`. It needs nothing beyond `libc.so.3` and `libsocket.so.3` (it also uses
+`posix_spawn` from libc), uses no floating point and calls no integer-division helper.
 
 ## Status
 
 - Host tests pass against a stand-in cluster and gateway, and the frames match the Python test
   scripts byte for byte.
-- `--watch-mode` ran on the car on 2026-11-18 (drive-mode values above). The HUD display itself has
-  not been reported from the car yet. The first run is by hand over SSH from `/dev/shmem` (RAM, gone after a
-  restart), parked, with no nav route, after `ric-min.py` confirms the start works without a captured
-  route.
-- It does not yet stand aside when the factory nav starts guiding. Until it does, it must not run
-  while driving with a route, in `--auto` too. That, and starting it automatically with the head unit,
-  come next.
+- `--watch-mode` and `--auto` ran on the car on 2026-11-18: the drive-mode values above, and boost
+  on the HUD in the sport modes. It is started by hand over SSH from `/dev/shmem` (RAM, gone after a
+  restart).
+- The nav stand-aside is tested here against Simon's logged lines but not yet on the car. Also not
+  yet seen: whether arriving at a destination logs the same `attach EMPTY` line as cancelling.
+- Starting it automatically with the head unit comes next.

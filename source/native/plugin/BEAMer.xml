@@ -1,0 +1,153 @@
+<?xml version='1.0' encoding='utf-8'?>
+<pluginApps>
+  <pluginApp applicationType="VehicleInformation" applicationWeight="218" text="BEAMer">
+    <entryButton id="1" action="10">
+      <properties>
+        <property id="23" value="2" />
+      </properties>
+    </entryButton>
+    <actions>
+      <hmiAction id="10" target="100" />
+      <raAction id="20" />
+      <raAction id="21" />
+      <raAction id="22" />
+      <raAction id="23" />
+      <raAction id="24" />
+    </actions>
+    <models>
+      <imageIdModel id="50" imageId="57600" />
+      <raDataModel id="51" modelType="Richtext" />
+      <imageIdModel id="60" imageId="57620" />
+      <imageIdModel id="61" imageId="57621" />
+      <imageIdModel id="62" imageId="57622" />
+      <imageIdModel id="63" imageId="57623" />
+      <imageIdModel id="64" imageId="57624" />
+      <imageIdModel id="65" imageId="57625" />
+      <imageIdModel id="66" imageId="57626" />
+    </models>
+    <hmiStates>
+      <hmiState id="100" text="BEAMer">
+        <components>
+          <image id="200" model="50">
+            <properties>
+              <property id="20" value="59" />
+              <property id="21" value="14" />
+              <property id="9" value="1188" />
+              <property id="10" value="284" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <label id="201" model="51">
+            <properties>
+              <property id="20" value="65" />
+              <property id="21" value="303" />
+              <property id="9" value="1181" />
+              <property id="10" value="43" />
+            </properties>
+          </label>
+          <image id="202" model="66">
+            <properties>
+              <property id="20" value="65" />
+              <property id="21" value="311" />
+              <property id="9" value="360" />
+              <property id="10" value="27" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <image id="220" model="60">
+            <properties>
+              <property id="20" value="61" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <button id="210" action="20" imageModel="65">
+            <properties>
+              <property id="20" value="61" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+            </properties>
+          </button>
+          <image id="221" model="61">
+            <properties>
+              <property id="20" value="298" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <button id="211" action="21" imageModel="65">
+            <properties>
+              <property id="20" value="298" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+            </properties>
+          </button>
+          <image id="222" model="62">
+            <properties>
+              <property id="20" value="536" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <button id="212" action="22" imageModel="65">
+            <properties>
+              <property id="20" value="536" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+            </properties>
+          </button>
+          <image id="223" model="63">
+            <properties>
+              <property id="20" value="773" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <button id="213" action="23" imageModel="65">
+            <properties>
+              <property id="20" value="773" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+            </properties>
+          </button>
+          <image id="224" model="64">
+            <properties>
+              <property id="20" value="1010" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+              <property id="2" value="false" />
+              <property id="3" value="true" />
+            </properties>
+          </image>
+          <button id="214" action="24" imageModel="65">
+            <properties>
+              <property id="20" value="1010" />
+              <property id="21" value="348" />
+              <property id="9" value="225" />
+              <property id="10" value="102" />
+            </properties>
+          </button>
+        </components>
+      </hmiState>
+    </hmiStates>
+  </pluginApp>
+</pluginApps>

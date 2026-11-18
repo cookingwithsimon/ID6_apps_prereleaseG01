@@ -96,3 +96,9 @@ id6_worker(engine-codes-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES
 target_compile_definitions(engine-codes-qnx PRIVATE ENGINE_CODES_ONLY)
 
 id6_worker(gaugedeck-fileops fileops.c)
+
+id6_plugin(RoadJet libRoadJet.so src/road_jet.cpp src/gauge_core.c)
+id6_worker(road-jet-qnx src/road_jet_worker.c src/gauge_core.c ${DIAG_LINK_SOURCES})
+
+id6_plugin(BEAMer libBEAMer.so src/light_show.cpp)
+id6_worker(beamer-qnx src/beamer_worker.c src/gauge_core.c ${DIAG_LINK_SOURCES})

@@ -44,13 +44,25 @@ The XML already in `native/plugin` is the 1440×540 layout. Do not run `native/t
 
 The MHD+ Suite Exhaust Flap page runs `MhdMaps/exhaust-flap-worker-qnx`. CMake builds it from `src/collector.c` (`EXHAUST_FLAP_ONLY`), with the MOST fallback. Copy it into the MhdMaps folder next to `mhd-maps-qnx`. This fork passes it the address from `MhdMaps/gateway-ip.txt`. The packaged XML and matching image archives must be deployed together.
 
+Road Jet (`RoadJet`, `road-jet-qnx`) and BEAMer (`BEAMer`, `beamer-qnx`) are built by CMake too, with their XML scaled to 1440×540 and the same `gateway-ip.txt` rule. Road Jet only reads the DME pedal and the EPS steering angle. BEAMer writes lamp pulses to the FEM/BDC at 0x40 in Park at zero speed, and stops with "unsupported" unless the module identifies as the F-series FEM it was tested on. It is untested on a G01.
+
 ## New firmware
 
-Use the [unlisted firmware runbook](../../AgentReadMe.md#bring-up-an-unlisted-firmware) and [read-only capture tool](../tools/capture_headunit.py) to collect the platform, display, and framework evidence before building a candidate profile.
+Use the [car identification steps](../../AgentReadMe.md#identify-the-car), the [porting workflow](PORTING.md), and the [read-only capture tool](../tools/capture_headunit.py) to collect the platform, display, and framework evidence before building a candidate profile.
 
 Read `/opt/sys/etc/nbt_version.txt`, `uname -a`, and `/opt/sys/bin/LayerManagerControl get screen 0` over SSH. Record the on-screen version and known iDrive pixel resolution if the corresponding automatic query fails. Compare the two framework hashes with the reference table in `AgentReadMe.md`. For a different pair, compare static ABI evidence with the already tested reference using `native/tools/audit_framework_abi.py` with `pyelftools` and `capstone`. Verify all imported symbols, constructor signatures, and vtable slots, then run a parked load and lifecycle test on that firmware. Static similarity alone does not establish runtime compatibility. Add a firmware entry only with matching evidence. Keep firmware approval separate from the vehicle's DME/EGS signal mapping.
 
-For example, compare the candidate against an independently preserved reference library pair:
+The committed [framework fingerprint](../native/framework-fingerprint.json) lets you run this audit with only your own captured pair. It holds the symbol names, sizes, vtable relocation slots, and SHA-256 digests of the NBTevo_N18032I reference pair for the functions the seven packaged plugins import. It contains no framework code. Install the two Python packages, extract the plugin libraries from [packages/](../../packages/), and audit all of them in one run:
+
+```sh
+python3 -m pip install pyelftools capstone
+python3 native/tools/audit_framework_abi.py \
+  --fingerprint native/framework-fingerprint.json \
+  --installed-dir /private/candidate-frameworks \
+  --plugin /private/plugins/lib*.so --report /private/abi-report.json
+```
+
+The published ten-build [static comparison](COMPATIBILITY.md#static-framework-checks) used S19221I as its reference. To compare against a reference pair you hold yourself, pass its directory:
 
 ```sh
 python3 native/tools/audit_framework_abi.py \
@@ -59,4 +71,6 @@ python3 native/tools/audit_framework_abi.py \
   --plugin native/out/libBoostDeck.so --report /private/boostdeck-abi-report.json
 ```
 
-Repeat for ShiftDeck and MHD Maps and inspect the report's limitations. The tool compares selected instruction prefixes and vtable relocation slots. It does not simulate HMI calls or prove that a matched framework works at runtime.
+After changing a plugin's framework imports, regenerate the fingerprint from the private reference pair with `--reference-dir`, `--plugin` for every packaged plugin, `--emit-fingerprint native/framework-fingerprint.json`, and `--label`. `native/tests/test_fingerprint.py` checks that the fingerprint covers the packaged plugin imports and expected vtables.
+
+Inspect the report's limitations. The tool checks required imports, function instruction prefixes, and expected vtable relocation slots. It does not simulate HMI calls or prove that a matched framework works at runtime.

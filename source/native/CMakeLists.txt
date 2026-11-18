@@ -87,6 +87,8 @@ id6_plugin(MhdMaps libMhdMaps.so src/mhd_maps.cpp)
 target_compile_definitions(MhdMaps PRIVATE PERF_LAB)
 id6_worker(mhd-maps-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES})
 target_compile_definitions(mhd-maps-qnx PRIVATE MHD_MAPS_ONLY)
+id6_worker(exhaust-flap-worker-qnx src/collector.c src/gauge_core.c ${DIAG_LINK_SOURCES})
+target_compile_definitions(exhaust-flap-worker-qnx PRIVATE EXHAUST_FLAP_ONLY)
 
 id6_plugin(EngineCodes libEngineCodes.so src/engine_codes.cpp src/gauge_core.c)
 target_compile_definitions(EngineCodes PRIVATE PERF_LAB)
